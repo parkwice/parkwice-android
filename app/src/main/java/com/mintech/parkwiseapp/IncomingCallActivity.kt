@@ -2,6 +2,7 @@ package com.mintech.parkwiseapp
 
 import android.app.KeyguardManager
 import android.content.Context
+import android.content.Intent // 🚨 THE FIX: Added the missing Intent import
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -57,7 +58,17 @@ class IncomingCallActivity : ComponentActivity() {
             IncomingCallScreen(
                 licensePlate = licensePlate,
                 onAccept = {
+                    // 1. Tell WebRTC to connect
                     SignalingClient.getInstance(applicationContext).acceptCallBackground(callerId)
+                    
+                    // 2. Launch MainActivity to show the Active Call UI
+                    val mainIntent = Intent(this@IncomingCallActivity, MainActivity::class.java).apply {
+                        // Clear the backstack so the user doesn't hit "back" into a dead call screen
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    }
+                    startActivity(mainIntent)
+                    
+                    // 3. Now close the ringing screen
                     finish()
                 },
                 onDecline = {

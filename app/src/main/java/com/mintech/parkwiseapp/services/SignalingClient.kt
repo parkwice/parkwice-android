@@ -14,10 +14,9 @@ class SignalingClient(private val context: Context) {
     companion object {
         @Volatile private var instance: SignalingClient? = null
         fun getInstance(context: Context): SignalingClient =
-                instance
-                        ?: synchronized(this) {
-                            instance ?: SignalingClient(context).also { instance = it }
-                        }
+                instance ?: synchronized(this) {
+                    instance ?: SignalingClient(context).also { instance = it }
+                }
     }
 
     val isCallActive = MutableStateFlow(false)
@@ -28,6 +27,9 @@ class SignalingClient(private val context: Context) {
     private var peerConnectionFactory: PeerConnectionFactory? = null
     private var peerConnection: PeerConnection? = null
     private var localAudioTrack: AudioTrack? = null
+
+    private val remoteCandidatesQueue = mutableListOf<IceCandidate>()
+    private var hasRemoteDescription = false
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
@@ -47,7 +49,14 @@ class SignalingClient(private val context: Context) {
     private fun initSocket() {
         socket = IO.socket(ApiConstants.API_URL)
 
-        socket?.on(Socket.EVENT_CONNECT) {}
+        // 🚨 1. Tell Node.js who we are when we connect!
+        socket?.on(Socket.EVENT_CONNECT) {
+            val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+            val myId = prefs.getString("user_id", "") ?: ""
+            if (myId.isNotEmpty()) {
+                socket?.emit("register", myId)
+            }
+        }
 
         socket?.on("call-accepted") { args ->
             val data = args[0] as JSONObject
@@ -67,7 +76,12 @@ class SignalingClient(private val context: Context) {
             val data = args[0] as JSONObject
             val sdp = data.getJSONObject("sdp").getString("sdp")
             peerConnection?.setRemoteDescription(
-                    SimpleSdpObserver(),
+                    object : SimpleSdpObserver() {
+                        override fun onSetSuccess() {
+                            hasRemoteDescription = true
+                            drainRemoteCandidates()
+                        }
+                    },
                     SessionDescription(SessionDescription.Type.ANSWER, sdp)
             )
         }
@@ -81,7 +95,12 @@ class SignalingClient(private val context: Context) {
                             cand.getInt("sdpMLineIndex"),
                             cand.getString("candidate")
                     )
-            peerConnection?.addIceCandidate(iceCandidate)
+            
+            if (hasRemoteDescription) {
+                peerConnection?.addIceCandidate(iceCandidate)
+            } else {
+                remoteCandidatesQueue.add(iceCandidate)
+            }
         }
 
         socket?.on("call-ended") { cleanup() }
@@ -108,137 +127,162 @@ class SignalingClient(private val context: Context) {
 
         socket?.connect()
 
-        android.os.Handler(android.os.Looper.getMainLooper())
-                .postDelayed(
-                        {
-                            val payload =
-                                    JSONObject().apply {
-                                        put("targetUserId", callerId)
-                                        put("responderId", myId)
-                                    }
-                            socket?.emit("accept-call", payload)
-                        },
-                        500
-                )
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            val payload = JSONObject().apply {
+                put("targetUserId", callerId)
+                put("responderId", myId)
+            }
+            socket?.emit("accept-call", payload)
+        }, 500)
     }
 
-    // 🚨 THE FIX: Pulled this out into its own function so both parties can turn on their
-    // microphones!
     private fun setupPeerConnection(targetId: String) {
-        if (peerConnection != null) return // Already setup
+        if (peerConnection != null) return 
 
-        val iceServers =
-                listOf(
-                        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302")
-                                .createIceServer()
-                )
+        // 🚨 2. STUN & TURN Servers added here!
+        val iceServers = listOf(
+            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+            PeerConnection.IceServer.builder("turn:76.13.5.244:3478")
+                .setUsername("myuser")
+                .setPassword("mypassword")
+                .createIceServer()
+        )
+        
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers)
 
-        peerConnection =
-                peerConnectionFactory?.createPeerConnection(
-                        rtcConfig,
-                        object : PeerConnection.Observer {
-                            override fun onIceCandidate(candidate: IceCandidate) {
-                                val candJson =
-                                        JSONObject().apply {
-                                            put("sdpMid", candidate.sdpMid)
-                                            put("sdpMLineIndex", candidate.sdpMLineIndex)
-                                            put("candidate", candidate.sdp)
-                                        }
-                                socket?.emit(
-                                        "ice-candidate",
-                                        JSONObject()
-                                                .put("targetUserId", targetId)
-                                                .put("candidate", candJson)
-                                )
-                            }
-                            override fun onSignalingChange(p0: PeerConnection.SignalingState?) {}
-                            override fun onIceConnectionChange(
-                                    p0: PeerConnection.IceConnectionState?
-                            ) {}
-                            override fun onIceConnectionReceivingChange(p0: Boolean) {}
-                            override fun onIceGatheringChange(
-                                    p0: PeerConnection.IceGatheringState?
-                            ) {}
-                            override fun onIceCandidatesRemoved(p0: Array<out IceCandidate>?) {}
-                            override fun onAddStream(p0: MediaStream?) {}
-                            override fun onRemoveStream(p0: MediaStream?) {}
-                            override fun onDataChannel(p0: DataChannel?) {}
-                            override fun onRenegotiationNeeded() {}
-                            override fun onAddTrack(
-                                    p0: RtpReceiver?,
-                                    p1: Array<out MediaStream>?
-                            ) {}
+        peerConnection = peerConnectionFactory?.createPeerConnection(
+            rtcConfig,
+            object : PeerConnection.Observer {
+                override fun onIceCandidate(candidate: IceCandidate) {
+                    val candJson = JSONObject().apply {
+                        put("sdpMid", candidate.sdpMid)
+                        put("sdpMLineIndex", candidate.sdpMLineIndex)
+                        put("candidate", candidate.sdp)
+                    }
+                    socket?.emit(
+                        "ice-candidate",
+                        JSONObject().put("targetUserId", targetId).put("candidate", candJson)
+                    )
+                }
+                
+                override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState?) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        if (newState == PeerConnection.IceConnectionState.CONNECTED || newState == PeerConnection.IceConnectionState.COMPLETED) {
+                            rtcState.value = "Connected"
+                        } else if (newState == PeerConnection.IceConnectionState.FAILED) {
+                            rtcState.value = "Connection Failed"
                         }
-                )
+                    }
+                }
+                
+                override fun onSignalingChange(p0: PeerConnection.SignalingState?) {}
+                override fun onIceConnectionReceivingChange(p0: Boolean) {}
+                override fun onIceGatheringChange(p0: PeerConnection.IceGatheringState?) {}
+                override fun onIceCandidatesRemoved(p0: Array<out IceCandidate>?) {}
+                override fun onAddStream(p0: MediaStream?) {}
+                override fun onRemoveStream(p0: MediaStream?) {}
+                override fun onDataChannel(p0: DataChannel?) {}
+                override fun onRenegotiationNeeded() {}
+                override fun onAddTrack(p0: RtpReceiver?, p1: Array<out MediaStream>?) {}
+            }
+        )
 
-        // Turn on the microphone
         val audioSource = peerConnectionFactory?.createAudioSource(MediaConstraints())
         localAudioTrack = peerConnectionFactory?.createAudioTrack("audio0", audioSource)
         peerConnection?.addTrack(localAudioTrack, listOf("stream0"))
     }
 
     private fun startWebRTCCall(targetId: String) {
-        setupPeerConnection(targetId) // Ensure mic is on
+        setupPeerConnection(targetId)
+
+        val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+        val myId = prefs.getString("user_id", "") ?: ""
 
         peerConnection?.createOffer(
-                object : SimpleSdpObserver() {
-                    override fun onCreateSuccess(sdp: SessionDescription?) {
-                        if (sdp == null) return
-                        peerConnection?.setLocalDescription(SimpleSdpObserver(), sdp)
-                        val sdpJson =
-                                JSONObject().apply {
-                                    put("type", "offer")
-                                    put("sdp", sdp.description)
-                                }
-                        socket?.emit(
-                                "offer",
-                                JSONObject().put("targetUserId", targetId).put("sdp", sdpJson)
-                        )
+            object : SimpleSdpObserver() {
+                override fun onCreateSuccess(sdp: SessionDescription?) {
+                    if (sdp == null) return
+                    peerConnection?.setLocalDescription(SimpleSdpObserver(), sdp)
+                    val sdpJson = JSONObject().apply {
+                        put("type", "offer")
+                        put("sdp", sdp.description)
                     }
-                },
-                MediaConstraints()
+                    socket?.emit(
+                        "offer",
+                        JSONObject()
+                            .put("targetUserId", targetId)
+                            .put("callerId", myId) // 🚨 3. Ensure iOS knows who we are!
+                            .put("sdp", sdpJson)
+                    )
+                }
+            },
+            MediaConstraints()
         )
     }
 
     private fun handleOffer(callerId: String, sdpString: String) {
         this.targetUserId = callerId
-        setupPeerConnection(callerId) // 🚨 THE FIX: Turn on the receiver's microphone!
+        setupPeerConnection(callerId)
 
         peerConnection?.setRemoteDescription(
-                SimpleSdpObserver(),
-                SessionDescription(SessionDescription.Type.OFFER, sdpString)
-        )
-        peerConnection?.createAnswer(
-                object : SimpleSdpObserver() {
-                    override fun onCreateSuccess(sdp: SessionDescription?) {
-                        if (sdp == null) return
-                        peerConnection?.setLocalDescription(SimpleSdpObserver(), sdp)
-                        val ansJson =
-                                JSONObject().apply {
+            object : SimpleSdpObserver() {
+                override fun onSetSuccess() {
+                    hasRemoteDescription = true
+                    drainRemoteCandidates()
+
+                    // 🚨 4. Wait for remote description to finish BEFORE answering!
+                    peerConnection?.createAnswer(
+                        object : SimpleSdpObserver() {
+                            override fun onCreateSuccess(sdp: SessionDescription?) {
+                                if (sdp == null) return
+                                peerConnection?.setLocalDescription(SimpleSdpObserver(), sdp)
+                                val ansJson = JSONObject().apply {
                                     put("type", "answer")
                                     put("sdp", sdp.description)
                                 }
-                        socket?.emit(
-                                "answer",
-                                JSONObject().put("targetUserId", callerId).put("sdp", ansJson)
-                        )
-                    }
-                },
-                MediaConstraints()
+                                socket?.emit(
+                                    "answer",
+                                    JSONObject().put("targetUserId", callerId).put("sdp", ansJson)
+                                )
+                            }
+                        },
+                        MediaConstraints()
+                    )
+                }
+            },
+            SessionDescription(SessionDescription.Type.OFFER, sdpString)
         )
     }
 
+    private fun drainRemoteCandidates() {
+        remoteCandidatesQueue.forEach { candidate ->
+            peerConnection?.addIceCandidate(candidate)
+        }
+        remoteCandidatesQueue.clear()
+    }
+
     fun endCall(callerId: String? = null) {
-        if(this.targetUserId == null && callerId != null) {
+        if (this.targetUserId == null && callerId != null) {
             this.targetUserId = callerId
         }
-        // You need to track the 'targetUserId' in Android just like you do in iOS
+        
         targetUserId?.let { target ->
             val payload = JSONObject().apply { put("targetUserId", target) }
-            socket?.emit("end-call", payload)
-        }
-        cleanup()
+            
+            // 🚨 5. Cold Boot rejection fix!
+            if (socket?.connected() == true) {
+                socket?.emit("end-call", payload)
+                cleanup()
+            } else {
+                socket?.connect()
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    socket?.emit("end-call", payload)
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        cleanup()
+                    }, 500)
+                }, 500)
+            }
+        } ?: cleanup()
     }
 
     fun cleanup() {
@@ -246,7 +290,11 @@ class SignalingClient(private val context: Context) {
         peerConnection = null
         socket?.disconnect()
         audioManager.mode = AudioManager.MODE_NORMAL
+        
         isCallActive.value = false
+        targetUserId = null
+        hasRemoteDescription = false
+        remoteCandidatesQueue.clear()
     }
 
     open class SimpleSdpObserver : SdpObserver {
