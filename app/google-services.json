@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "709274015780",
+    "project_id": "csir-npl-1f553",
+    "storage_bucket": "csir-npl-1f553.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:709274015780:android:111fce52c152cd4784e0b1",
+        "android_client_info": {
+          "package_name": "com.mintech.parkwiseapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "709274015780-o5koeeqp2gn8bgcvvn3smvgk66i633r3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mintech.parkwiseapp",
+            "certificate_hash": "b5dd6fb62d4a3b9c4b7765d8cde6e7d2e8f1fe07"
+          }
+        },
+        {
+          "client_id": "709274015780-0f4m6nhl5mis0239nd8omn7hl88rlq7q.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC6j4rtQmS1MBcrBoWFoWGtqLnUxLNwVgc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "709274015780-0f4m6nhl5mis0239nd8omn7hl88rlq7q.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "709274015780-js31sd4n6piruvi55dd9udrmi3cso1h8.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.mintech.parkwiseapp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
