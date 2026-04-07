@@ -40,21 +40,26 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
 
-        // 🚨 1. LOG THE PAYLOAD TO CATCH SILENT ERRORS
-        Log.d("FCM_DEBUG", "🚨 Push received! Raw Data: ${remoteMessage.data}")
-
         val data = remoteMessage.data
-        
-        // 🚨 2. MIRROR iOS LOGIC: Check for both possible keys!
+        Log.d("FCM_DEBUG", "🚨 Push received! Raw Data: $data")
+
         val callerId = data["callerId"] ?: data["id"]
         if (callerId == null) {
             Log.e("FCM_DEBUG", "❌ Aborting: No callerId or id found in payload!")
             return
         }
-        
-        val licensePlate = data["licensePlate"] ?: data["handle"] ?: "Vehicle Alert"
 
-        Log.d("FCM_DEBUG", "✅ Building Notification for Caller: $callerId, Plate: $licensePlate")
+        // 🚨 NEW: Check if the caller hung up before we answered
+        val status = data["status"]
+        if (status == "CANCEL_CALL") {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.cancel(callerId.hashCode())
+            sendBroadcast(Intent("CANCEL_CALL_ACTION"))
+            Log.d("FCM_DEBUG", "✅ Call cancelled, ringing dismissed.")
+            return
+        }
+
+        val licensePlate = data["licensePlate"] ?: data["handle"] ?: "Vehicle Alert"
 
         val fullScreenIntent = Intent(this, IncomingCallActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -70,7 +75,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         )
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channelId = "voip_call_channel_v3" // Incremented to force Android to apply Ringtone settings
+        val channelId = "voip_call_channel_v3"
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
@@ -107,9 +112,8 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         try {
             notificationManager.notify(callerId.hashCode(), notificationBuilder.build())
-            Log.d("FCM_DEBUG", "✅ Notification fired to Android OS successfully!")
         } catch (e: SecurityException) {
-            Log.e("FCM_DEBUG", "❌ OS blocked notification! Missing POST_NOTIFICATIONS permission.", e)
+            Log.e("FCM_DEBUG", "❌ OS blocked notification!", e)
         }
     }
 }

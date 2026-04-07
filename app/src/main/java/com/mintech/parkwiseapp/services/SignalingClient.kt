@@ -49,7 +49,6 @@ class SignalingClient(private val context: Context) {
     private fun initSocket() {
         socket = IO.socket(ApiConstants.API_URL)
 
-        // 🚨 1. Tell Node.js who we are when we connect!
         socket?.on(Socket.EVENT_CONNECT) {
             val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
             val myId = prefs.getString("user_id", "") ?: ""
@@ -139,7 +138,6 @@ class SignalingClient(private val context: Context) {
     private fun setupPeerConnection(targetId: String) {
         if (peerConnection != null) return 
 
-        // 🚨 2. STUN & TURN Servers added here!
         val iceServers = listOf(
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
             PeerConnection.IceServer.builder("turn:76.13.5.244:3478")
@@ -211,7 +209,7 @@ class SignalingClient(private val context: Context) {
                         "offer",
                         JSONObject()
                             .put("targetUserId", targetId)
-                            .put("callerId", myId) // 🚨 3. Ensure iOS knows who we are!
+                            .put("callerId", myId) 
                             .put("sdp", sdpJson)
                     )
                 }
@@ -230,7 +228,6 @@ class SignalingClient(private val context: Context) {
                     hasRemoteDescription = true
                     drainRemoteCandidates()
 
-                    // 🚨 4. Wait for remote description to finish BEFORE answering!
                     peerConnection?.createAnswer(
                         object : SimpleSdpObserver() {
                             override fun onCreateSuccess(sdp: SessionDescription?) {
@@ -261,6 +258,15 @@ class SignalingClient(private val context: Context) {
         remoteCandidatesQueue.clear()
     }
 
+    // 🚨 NEW: Hardware Control Functions
+    fun toggleMute(isMuted: Boolean) {
+        localAudioTrack?.setEnabled(!isMuted)
+    }
+
+    fun toggleSpeaker(isSpeaker: Boolean) {
+        audioManager.isSpeakerphoneOn = isSpeaker
+    }
+
     fun endCall(callerId: String? = null) {
         if (this.targetUserId == null && callerId != null) {
             this.targetUserId = callerId
@@ -269,7 +275,6 @@ class SignalingClient(private val context: Context) {
         targetUserId?.let { target ->
             val payload = JSONObject().apply { put("targetUserId", target) }
             
-            // 🚨 5. Cold Boot rejection fix!
             if (socket?.connected() == true) {
                 socket?.emit("end-call", payload)
                 cleanup()

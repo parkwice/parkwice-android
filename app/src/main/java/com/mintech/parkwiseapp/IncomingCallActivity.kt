@@ -1,8 +1,10 @@
 package com.mintech.parkwiseapp
 
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent // 🚨 THE FIX: Added the missing Intent import
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -33,8 +35,22 @@ import com.mintech.parkwiseapp.services.SignalingClient
 import com.mintech.parkwiseapp.ui.theme.*
 
 class IncomingCallActivity : ComponentActivity() {
+
+    // 🚨 Listens for the cancel signal from Firebase
+    private val cancelReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "CANCEL_CALL_ACTION") {
+                finish() // Close the ringing screen instantly
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 🚨 Make System Bars match the App Background
+        window.statusBarColor = android.graphics.Color.parseColor("#1A232A")
+        window.navigationBarColor = android.graphics.Color.parseColor("#1A232A")
 
         // Force screen to wake up and bypass lock screen
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -51,6 +67,14 @@ class IncomingCallActivity : ComponentActivity() {
             )
         }
 
+        // 🚨 Register the Cancel Listener
+        val filter = IntentFilter("CANCEL_CALL_ACTION")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(cancelReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(cancelReceiver, filter)
+        }
+
         val callerId = intent.getStringExtra("CALLER_ID") ?: ""
         val licensePlate = intent.getStringExtra("LICENSE_PLATE") ?: "Vehicle Alert"
 
@@ -58,17 +82,12 @@ class IncomingCallActivity : ComponentActivity() {
             IncomingCallScreen(
                 licensePlate = licensePlate,
                 onAccept = {
-                    // 1. Tell WebRTC to connect
                     SignalingClient.getInstance(applicationContext).acceptCallBackground(callerId)
                     
-                    // 2. Launch MainActivity to show the Active Call UI
                     val mainIntent = Intent(this@IncomingCallActivity, MainActivity::class.java).apply {
-                        // Clear the backstack so the user doesn't hit "back" into a dead call screen
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                     }
                     startActivity(mainIntent)
-                    
-                    // 3. Now close the ringing screen
                     finish()
                 },
                 onDecline = {
@@ -78,11 +97,15 @@ class IncomingCallActivity : ComponentActivity() {
             )
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(cancelReceiver) // Clean up memory
+    }
 }
 
 @Composable
 fun IncomingCallScreen(licensePlate: String, onAccept: () -> Unit, onDecline: () -> Unit) {
-    // Infinite pulse animation for the ringing effect
     val infiniteTransition = rememberInfiniteTransition()
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
@@ -110,8 +133,6 @@ fun IncomingCallScreen(licensePlate: String, onAccept: () -> Unit, onDecline: ()
             modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 48.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            
-            // App Branding
             Text("Parkwise", color = OnSurfaceVariant, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 6.sp)
             Spacer(modifier = Modifier.height(32.dp))
 
@@ -123,11 +144,8 @@ fun IncomingCallScreen(licensePlate: String, onAccept: () -> Unit, onDecline: ()
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Animated Center Avatar
             Box(contentAlignment = Alignment.Center) {
-                // The expanding/fading pulse ring
                 Box(modifier = Modifier.size(140.dp).scale(pulseScale).background(PrimaryApp.copy(alpha = pulseAlpha), CircleShape))
-                // The solid inner circle
                 Box(modifier = Modifier.size(120.dp).background(SurfaceLow, CircleShape), contentAlignment = Alignment.Center) {
                     Icon(Icons.Filled.DirectionsCar, contentDescription = null, tint = PrimaryApp, modifier = Modifier.size(48.dp))
                 }
@@ -135,12 +153,10 @@ fun IncomingCallScreen(licensePlate: String, onAccept: () -> Unit, onDecline: ()
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Decline Column
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     IconButton(
                         onClick = onDecline,
@@ -152,7 +168,6 @@ fun IncomingCallScreen(licensePlate: String, onAccept: () -> Unit, onDecline: ()
                     Text("Decline", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
 
-                // Accept Column
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     IconButton(
                         onClick = onAccept,
