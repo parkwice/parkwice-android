@@ -101,6 +101,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         val notificationBuilder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_launcher_foreground) 
+            .setColor(android.graphics.Color.parseColor("#62C554")) // 🚨 Tints the notification to Parkwise Green
             .setContentTitle("Incoming Secure Call")
             .setContentText("Vehicle: $licensePlate")
             .setPriority(NotificationCompat.PRIORITY_HIGH)

@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 android {
@@ -24,7 +25,6 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -80,4 +80,10 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.accompanist:accompanist-permissions:0.35.0-alpha")
     implementation("androidx.appcompat:appcompat:1.6.1")
+
+    implementation("com.google.firebase:firebase-analytics-ktx")
+    implementation("com.google.firebase:firebase-crashlytics-ktx")
+
+    // Coil for Compose (Image Loading)
+    implementation("io.coil-kt:coil-compose:2.5.0")
 }

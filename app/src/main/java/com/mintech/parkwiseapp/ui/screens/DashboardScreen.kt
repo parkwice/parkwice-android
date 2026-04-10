@@ -1,6 +1,10 @@
 package com.mintech.parkwiseapp.ui.screens
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,199 +17,181 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.mintech.parkwiseapp.services.ApiService
 import com.mintech.parkwiseapp.services.CallInitiateRequest
 import com.mintech.parkwiseapp.services.SignalingClient
 import com.mintech.parkwiseapp.services.Vehicle
 import com.mintech.parkwiseapp.ui.theme.*
 import kotlinx.coroutines.launch
+import com.mintech.parkwiseapp.services.AppLogger
+
+fun arePermissionsGranted(context: Context): Boolean {
+    val audio = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    val push = if (Build.VERSION.SDK_INT >= 33) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    } else true
+    return audio && push
+}
 
 @Composable
-fun DashboardScreen(onLogout: () -> Unit, onAddVehicle: () -> Unit) {
+fun DashboardScreen(navController: NavController) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+    
     val userEmail = prefs.getString("user_email", "Loading...") ?: ""
+    val userPhoto = prefs.getString("user_photo", "") ?: ""
     val jwtToken = prefs.getString("jwt_token", "") ?: ""
 
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    
     var searchPlate by remember { mutableStateOf("") }
     var isCalling by remember { mutableStateOf(false) }
-    var showLogoutDialog by remember { mutableStateOf(false) }
     var vehicles by remember { mutableStateOf<List<Vehicle>>(emptyList()) }
 
-    // Fetch vehicles when the screen loads
+    // Permission Flow State
+    var showPermissionFlow by remember { mutableStateOf(false) }
+    var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
     fun loadVehicles() {
         coroutineScope.launch {
             try {
-                vehicles = ApiService.api.getVehicles("Bearer $jwtToken")
+                val response = ApiService.api.getVehicles("Bearer $jwtToken")
+                if (response.isSuccessful) {
+                    vehicles = response.body() ?: emptyList()
+                    // 🚨 If they have vehicles already, but lack permissions, prompt them!
+                    if (vehicles.isNotEmpty() && !arePermissionsGranted(context)) {
+                        showPermissionFlow = true
+                    }
+                }
             } catch (e: Exception) {
-                e.printStackTrace()
+                AppLogger.recordError(e, "Failed to load vehicles")
             }
         }
     }
 
     LaunchedEffect(Unit) { loadVehicles() }
 
-    // Logout Dialog
-    if (showLogoutDialog) {
-        AlertDialog(
-                onDismissRequest = { showLogoutDialog = false },
-                title = { Text("Confirm Logout", fontWeight = FontWeight.Bold) },
-                text = { Text("Are you sure you want to log out of your account?") },
-                confirmButton = {
-                    TextButton(
-                            onClick = {
-                                showLogoutDialog = false
-                                prefs.edit().clear().apply() // Clear session
-                                onLogout()
-                            }
-                    ) { Text("Logout", color = ErrorApp, fontWeight = FontWeight.Bold) }
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            SideDrawerContent(
+                userEmail = userEmail,
+                photoUrl = userPhoto,
+                onNavigateToAccount = { 
+                    coroutineScope.launch { drawerState.close() }
+                    navController.navigate("account") 
                 },
-                dismissButton = {
-                    TextButton(onClick = { showLogoutDialog = false }) {
-                        Text("Cancel", color = OnSurfaceVariant)
-                    }
+                onNavigateToHistory = { 
+                    coroutineScope.launch { drawerState.close() }
+                    navController.navigate("history") 
+                }
+            )
+        }
+    ) {
+        // --- PERMISSION OVERLAY ---
+        if (showPermissionFlow) {
+            FriendlyPermissionFlow(
+                onPermissionsGranted = {
+                    showPermissionFlow = false
+                    pendingAction?.invoke()
+                    pendingAction = null
                 },
-                backgroundColor = SurfaceHigh,
-                contentColor = Color.White,
-                shape = RoundedCornerShape(16.dp)
-        )
-    }
-
-    Column(modifier = Modifier.fillMaxSize().background(Background)) {
-
-        // --- CUSTOM HEADER ---
-        Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                    modifier = Modifier.size(44.dp).background(SurfaceHigh, CircleShape),
-                    contentAlignment = Alignment.Center
-            ) { Icon(Icons.Filled.Person, contentDescription = null, tint = PrimaryApp) }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text("Parkwise", color = PrimaryApp, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text(userEmail, color = OnSurfaceVariant, fontSize = 12.sp, maxLines = 1)
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = { showLogoutDialog = true }) {
-                Icon(Icons.Filled.Logout, contentDescription = "Logout", tint = PrimaryApp)
-            }
+                onCancel = {
+                    showPermissionFlow = false
+                    pendingAction = null
+                }
+            )
         }
 
-        // --- MAIN SCROLLABLE CONTENT ---
-        Column(modifier = Modifier.padding(horizontal = 24.dp).weight(1f)) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                    "Hassle-Free\nCommunication",
-                    color = PrimaryApp,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.ExtraBold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Calls are completely encrypted; zero data shared.", color = OnSurfaceVariant)
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Plate Number Input Card
-            Column(
-                    modifier =
-                            Modifier.fillMaxWidth()
-                                    .background(SurfaceLow, RoundedCornerShape(32.dp))
-                                    .border(
-                                            1.dp,
-                                            PrimaryApp.copy(alpha = 0.1f),
-                                            RoundedCornerShape(32.dp)
-                                    )
-                                    .padding(24.dp)
+        Column(modifier = Modifier.fillMaxSize().background(Background)) {
+            // --- HEADER ---
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Plate Number", color = OnSurfaceVariant, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(16.dp))
+                // 🚨 Avatar opens Drawer
+                AsyncImage(
+                    model = userPhoto.ifEmpty { "https://ui-avatars.com/api/?name=${userEmail}" },
+                    contentDescription = "Profile",
+                    modifier = Modifier.size(44.dp).clip(CircleShape).clickable {
+                        coroutineScope.launch { drawerState.open() }
+                    }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("Parkwise", color = PrimaryApp, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(userEmail, color = OnSurfaceVariant, fontSize = 12.sp, maxLines = 1)
+                }
+            }
 
-                Row(
-                        modifier =
-                                Modifier.fillMaxWidth()
-                                        .background(SurfaceLowest, RoundedCornerShape(16.dp))
-                                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+            // --- MAIN CONTENT ---
+            Column(modifier = Modifier.padding(horizontal = 24.dp).weight(1f)) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Hassle-Free\nCommunication", color = PrimaryApp, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Calls are completely encrypted; zero data shared.", color = OnSurfaceVariant)
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Plate Input
+                Column(
+                    modifier = Modifier.fillMaxWidth().background(SurfaceLow, RoundedCornerShape(32.dp))
+                        .border(1.dp, PrimaryApp.copy(alpha = 0.1f), RoundedCornerShape(32.dp)).padding(24.dp)
                 ) {
-                    TextField(
+                    Text("Plate Number", color = OnSurfaceVariant, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().background(SurfaceLowest, RoundedCornerShape(16.dp)).padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextField(
                             value = searchPlate,
                             onValueChange = { searchPlate = it.uppercase() },
-                            colors =
-                                    TextFieldDefaults.textFieldColors(
-                                            backgroundColor = Color.Transparent,
-                                            focusedIndicatorColor = Color.Transparent,
-                                            unfocusedIndicatorColor = Color.Transparent,
-                                            textColor = PrimaryApp,
-                                            cursorColor = PrimaryApp
-                                    ),
-                            placeholder = {
-                                Text(
-                                        "ABC-1234",
-                                        color = OnSurfaceVariant.copy(alpha = 0.5f),
-                                        fontSize = 24.sp,
-                                        fontWeight = FontWeight.Bold
-                                )
-                            },
-                            textStyle =
-                                    LocalTextStyle.current.copy(
-                                            fontSize = 24.sp,
-                                            fontWeight = FontWeight.Bold
-                                    ),
+                            colors = TextFieldDefaults.textFieldColors(backgroundColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, textColor = PrimaryApp, cursorColor = PrimaryApp),
+                            placeholder = { Text("ABC-1234", color = OnSurfaceVariant.copy(alpha = 0.5f), fontSize = 24.sp, fontWeight = FontWeight.Bold) },
+                            textStyle = LocalTextStyle.current.copy(fontSize = 24.sp, fontWeight = FontWeight.Bold),
                             modifier = Modifier.weight(1f)
-                    )
-                    Icon(
-                            Icons.Filled.DirectionsCar,
-                            contentDescription = null,
-                            tint = OnSurfaceVariant.copy(alpha = 0.5f)
-                    )
-                }
+                        )
+                    }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                // Initiate Call Button
-                // Initiate Call Button
-                Button(
+                    // 🚨 Call Button with Error Parsing
+                    Button(
                         onClick = {
                             isCalling = true
+                            AppLogger.logEvent("call_attempted")
                             coroutineScope.launch {
                                 try {
-                                    val response =
-                                            ApiService.api.initiateCall(
-                                                    "Bearer $jwtToken",
-                                                    CallInitiateRequest(searchPlate.trim())
-                                            )
-                                    // Check if we actually got an ID instead of checking for a fake
-                                    // 'success' boolean
-                                    if (!response.targetUserId.isNullOrEmpty()) {
-                                        SignalingClient.getInstance(context)
-                                                .initiateCall(response.targetUserId)
+                                    val response = ApiService.api.initiateCall("Bearer $jwtToken", CallInitiateRequest(searchPlate.trim()))
+                                    
+                                    if (response.isSuccessful && !response.body()?.targetUserId.isNullOrEmpty()) {
+                                        AppLogger.logEvent("call_connected")
+                                        SignalingClient.getInstance(context).initiateCall(response.body()!!.targetUserId!!)
                                     } else {
-                                        android.widget.Toast.makeText(
-                                                        context,
-                                                        "Vehicle not found",
-                                                        android.widget.Toast.LENGTH_SHORT
-                                                )
-                                                .show()
+                                        val errorMsg = ApiService.extractErrorMessage(response.errorBody())
+                                        AppLogger.logEvent("call_failed", mapOf("reason" to errorMsg))
+                                        Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
                                     }
                                 } catch (e: Exception) {
-                                    // Network failure or Server threw an error (like a 404)
-                                    android.util.Log.e("CallError", "Failed to initiate call", e)
-                                    android.widget.Toast.makeText(
-                                                    context,
-                                                    "Server Error: Check your connection",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                            )
-                                            .show()
+                                    AppLogger.recordError(e, "Call init failed")
+                                    Toast.makeText(context, "Network error", Toast.LENGTH_SHORT).show()
                                 } finally {
                                     isCalling = false
                                 }
@@ -213,99 +199,60 @@ fun DashboardScreen(onLogout: () -> Unit, onAddVehicle: () -> Unit) {
                         },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = RoundedCornerShape(16.dp),
-                        colors =
-                                ButtonDefaults.buttonColors(
-                                        backgroundColor = PrimaryApp,
-                                        disabledBackgroundColor = PrimaryApp.copy(alpha = 0.5f)
-                                ),
+                        colors = ButtonDefaults.buttonColors(backgroundColor = PrimaryApp, disabledBackgroundColor = PrimaryApp.copy(alpha = 0.5f)),
                         enabled = searchPlate.isNotEmpty() && !isCalling
-                ) {
-                    if (isCalling) {
-                        CircularProgressIndicator(
-                                color = Color.White,
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(Icons.Filled.Phone, contentDescription = null, tint = SurfaceLowest)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                                "Contact Owner",
-                                color = SurfaceLowest,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                        )
+                    ) {
+                        if (isCalling) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        else Text("Contact Owner", color = SurfaceLowest, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
-            // Active Vehicles Header
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                        "Active Vehicles",
-                        color = PrimaryApp,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                Row(
-                        modifier =
-                                Modifier.background(SurfaceHigh, RoundedCornerShape(8.dp))
-                                        .clickable { onAddVehicle() }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Active Vehicles", color = PrimaryApp, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.weight(1f))
+                    Row(
+                        modifier = Modifier.background(SurfaceHigh, RoundedCornerShape(8.dp)).clickable { 
+                            // 🚨 Check Permissions before adding a vehicle
+                            if (!arePermissionsGranted(context)) {
+                                showPermissionFlow = true
+                                pendingAction = { navController.navigate("setup") }
+                            } else {
+                                navController.navigate("setup")
+                            }
+                        }.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                            Icons.Filled.Add,
-                            contentDescription = null,
-                            tint = PrimaryApp,
-                            modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                            "Add Vehicle",
-                            color = PrimaryApp,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                    )
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null, tint = PrimaryApp, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add Vehicle", color = PrimaryApp, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            // Vehicles Grid
-            if (vehicles.isEmpty()) {
-                Text(
-                        "No vehicles registered yet.",
-                        color = OnSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 16.dp)
-                )
-            } else {
-                LazyVerticalGrid(
+                if (vehicles.isEmpty()) {
+                    Text("No vehicles registered yet.", color = OnSurfaceVariant, modifier = Modifier.padding(vertical = 16.dp))
+                } else {
+                    LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.padding(bottom = 24.dp)
-                ) {
-                    items(vehicles) { vehicle ->
-                        VehicleCard(
-                                vehicle = vehicle,
-                                onDelete = {
-                                    coroutineScope.launch {
-                                        try {
-                                            ApiService.api.deleteVehicle(
-                                                    "Bearer $jwtToken",
-                                                    vehicle._id
-                                            )
-                                            loadVehicles() // Refresh list after delete
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
-                                        }
+                    ) {
+                        items(vehicles) { vehicle ->
+                            VehicleCard(vehicle = vehicle) {
+                                coroutineScope.launch {
+                                    try {
+                                        ApiService.api.deleteVehicle("Bearer $jwtToken", vehicle._id)
+                                        loadVehicles()
+                                    } catch (e: Exception) {
+                                        AppLogger.recordError(e)
                                     }
                                 }
-                        )
+                            }
+                        }
                     }
                 }
             }
@@ -313,58 +260,28 @@ fun DashboardScreen(onLogout: () -> Unit, onAddVehicle: () -> Unit) {
     }
 }
 
-// Sub-component for the Grid
 @Composable
 fun VehicleCard(vehicle: Vehicle, onDelete: () -> Unit) {
     Column(
-            modifier =
-                    Modifier.background(SurfaceLow, RoundedCornerShape(16.dp))
-                            .border(
-                                    1.dp,
-                                    OnSurfaceVariant.copy(alpha = 0.3f),
-                                    RoundedCornerShape(16.dp)
-                            )
-                            .padding(16.dp)
-                            .height(120.dp)
+        modifier = Modifier.background(SurfaceLow, RoundedCornerShape(16.dp))
+            .border(1.dp, OnSurfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(16.dp)).padding(16.dp).height(120.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                    vehicle.licensePlate,
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-            )
+            Text(vehicle.licensePlate, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.weight(1f))
             IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
-                Icon(
-                        Icons.Filled.Delete,
-                        contentDescription = "Delete",
-                        tint = ErrorApp,
-                        modifier = Modifier.size(20.dp)
-                )
+                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = ErrorApp, modifier = Modifier.size(20.dp))
             }
         }
-
         Spacer(modifier = Modifier.weight(1f))
-
         Row(verticalAlignment = Alignment.Bottom) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                        Icons.Filled.CheckCircle,
-                        contentDescription = null,
-                        tint = PrimaryApp,
-                        modifier = Modifier.size(12.dp)
-                )
+                Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = PrimaryApp, modifier = Modifier.size(12.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("Active", color = OnSurfaceVariant, fontSize = 12.sp)
             }
             Spacer(modifier = Modifier.weight(1f))
-            Icon(
-                    Icons.Filled.DirectionsCar,
-                    contentDescription = null,
-                    tint = PrimaryApp.copy(alpha = 0.2f),
-                    modifier = Modifier.size(32.dp)
-            )
+            Icon(Icons.Filled.DirectionsCar, contentDescription = null, tint = PrimaryApp.copy(alpha = 0.2f), modifier = Modifier.size(32.dp))
         }
     }
 }
