@@ -28,6 +28,8 @@ class SignalingClient(private val context: Context) {
     private var peerConnection: PeerConnection? = null
     private var localAudioTrack: AudioTrack? = null
 
+    private var pendingAcceptCallerId: String? = null
+
     private val remoteCandidatesQueue = mutableListOf<IceCandidate>()
     private var hasRemoteDescription = false
 
@@ -40,8 +42,7 @@ class SignalingClient(private val context: Context) {
 
     private fun initWebRTC() {
         PeerConnectionFactory.initialize(
-                PeerConnectionFactory.InitializationOptions.builder(context)
-                        .createInitializationOptions()
+                PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions()
         )
         peerConnectionFactory = PeerConnectionFactory.builder().createPeerConnectionFactory()
     }
@@ -54,6 +55,17 @@ class SignalingClient(private val context: Context) {
             val myId = prefs.getString("user_id", "") ?: ""
             if (myId.isNotEmpty()) {
                 socket?.emit("register", myId)
+                
+                pendingAcceptCallerId?.let { callerId ->
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        val payload = JSONObject().apply {
+                            put("targetUserId", callerId)
+                            put("responderId", myId)
+                        }
+                        socket?.emit("accept-call", payload)
+                        pendingAcceptCallerId = null 
+                    }, 400) 
+                }
             }
         }
 
@@ -88,12 +100,7 @@ class SignalingClient(private val context: Context) {
         socket?.on("ice-candidate") { args ->
             val data = args[0] as JSONObject
             val cand = data.getJSONObject("candidate")
-            val iceCandidate =
-                    IceCandidate(
-                            cand.getString("sdpMid"),
-                            cand.getInt("sdpMLineIndex"),
-                            cand.getString("candidate")
-                    )
+            val iceCandidate = IceCandidate(cand.getString("sdpMid"), cand.getInt("sdpMLineIndex"), cand.getString("candidate"))
             
             if (hasRemoteDescription) {
                 peerConnection?.addIceCandidate(iceCandidate)
@@ -124,15 +131,16 @@ class SignalingClient(private val context: Context) {
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         audioManager.isSpeakerphoneOn = false
 
-        socket?.connect()
-
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+        if (socket?.connected() == true) {
             val payload = JSONObject().apply {
                 put("targetUserId", callerId)
                 put("responderId", myId)
             }
             socket?.emit("accept-call", payload)
-        }, 500)
+        } else {
+            pendingAcceptCallerId = callerId
+            socket?.connect()
+        }
     }
 
     private fun setupPeerConnection(targetId: String) {
@@ -140,10 +148,7 @@ class SignalingClient(private val context: Context) {
 
         val iceServers = listOf(
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("turn:76.13.5.244:3478")
-                .setUsername("myuser")
-                .setPassword("mypassword")
-                .createIceServer()
+            PeerConnection.IceServer.builder("turn:76.13.5.244:3478").setUsername("myuser").setPassword("mypassword").createIceServer()
         )
         
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers)
@@ -157,10 +162,7 @@ class SignalingClient(private val context: Context) {
                         put("sdpMLineIndex", candidate.sdpMLineIndex)
                         put("candidate", candidate.sdp)
                     }
-                    socket?.emit(
-                        "ice-candidate",
-                        JSONObject().put("targetUserId", targetId).put("candidate", candJson)
-                    )
+                    socket?.emit("ice-candidate", JSONObject().put("targetUserId", targetId).put("candidate", candJson))
                 }
                 
                 override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState?) {
@@ -205,13 +207,7 @@ class SignalingClient(private val context: Context) {
                         put("type", "offer")
                         put("sdp", sdp.description)
                     }
-                    socket?.emit(
-                        "offer",
-                        JSONObject()
-                            .put("targetUserId", targetId)
-                            .put("callerId", myId) 
-                            .put("sdp", sdpJson)
-                    )
+                    socket?.emit("offer", JSONObject().put("targetUserId", targetId).put("callerId", myId).put("sdp", sdpJson))
                 }
             },
             MediaConstraints()
@@ -237,10 +233,7 @@ class SignalingClient(private val context: Context) {
                                     put("type", "answer")
                                     put("sdp", sdp.description)
                                 }
-                                socket?.emit(
-                                    "answer",
-                                    JSONObject().put("targetUserId", callerId).put("sdp", ansJson)
-                                )
+                                socket?.emit("answer", JSONObject().put("targetUserId", callerId).put("sdp", ansJson))
                             }
                         },
                         MediaConstraints()
@@ -258,7 +251,6 @@ class SignalingClient(private val context: Context) {
         remoteCandidatesQueue.clear()
     }
 
-    // 🚨 NEW: Hardware Control Functions
     fun toggleMute(isMuted: Boolean) {
         localAudioTrack?.setEnabled(!isMuted)
     }
@@ -267,27 +259,52 @@ class SignalingClient(private val context: Context) {
         audioManager.isSpeakerphoneOn = isSpeaker
     }
 
-    fun endCall(callerId: String? = null) {
+    fun endCall(callerId: String? = null, onCallEnded: (() -> Unit)? = null) {
         if (this.targetUserId == null && callerId != null) {
             this.targetUserId = callerId
         }
         
-        targetUserId?.let { target ->
+        val target = targetUserId ?: callerId
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        
+        if (target != null) {
             val payload = JSONObject().apply { put("targetUserId", target) }
             
             if (socket?.connected() == true) {
                 socket?.emit("end-call", payload)
-                cleanup()
-            } else {
-                socket?.connect()
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    socket?.emit("end-call", payload)
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        cleanup()
-                    }, 500)
+                mainHandler.postDelayed({
+                    cleanup()
+                    onCallEnded?.invoke()
                 }, 500)
+            } else {
+                var handled = false
+                socket?.connect()
+                socket?.once(Socket.EVENT_CONNECT) {
+                    if (!handled) {
+                        handled = true
+                        mainHandler.postDelayed({
+                            socket?.emit("end-call", payload)
+                            mainHandler.postDelayed({
+                                cleanup()
+                                onCallEnded?.invoke()
+                            }, 500)
+                        }, 500) 
+                    }
+                }
+                
+                // 🚨 INCREASED TIMEOUT: Gives the app 8 seconds to connect to the network from the background
+                mainHandler.postDelayed({
+                    if (!handled) {
+                        handled = true
+                        cleanup()
+                        onCallEnded?.invoke()
+                    }
+                }, 8000)
             }
-        } ?: cleanup()
+        } else {
+            cleanup()
+            onCallEnded?.invoke()
+        }
     }
 
     fun cleanup() {
