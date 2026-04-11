@@ -71,11 +71,33 @@ class IncomingCallActivity : ComponentActivity() {
 
         val callerId = intent.getStringExtra("CALLER_ID") ?: ""
         val licensePlate = intent.getStringExtra("LICENSE_PLATE") ?: "Vehicle Alert"
+        
+        val autoAccept = intent.getBooleanExtra("AUTO_ACCEPT", false)
 
+        // If the user tapped "Accept" directly from the heads-up notification:
+        if (autoAccept) {
+            // 🚨 FIX: Force clear the lingering notification from the tray
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            notificationManager.cancel(callerId.hashCode())
+
+            SignalingClient.getInstance(applicationContext).acceptCallBackground(callerId)
+            val mainIntent = Intent(this@IncomingCallActivity, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            startActivity(mainIntent)
+            finish() // Close this activity immediately
+            return // Prevent the ringing screen from drawing
+        }
+
+        // Otherwise, show the normal ringing screen
         setContent {
             IncomingCallScreen(
                 licensePlate = licensePlate,
                 onAccept = {
+                    // 🚨 FIX: Force clear the notification when accepting from full screen
+                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                    notificationManager.cancel(callerId.hashCode())
+
                     SignalingClient.getInstance(applicationContext).acceptCallBackground(callerId)
                     val mainIntent = Intent(this@IncomingCallActivity, MainActivity::class.java).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -84,6 +106,10 @@ class IncomingCallActivity : ComponentActivity() {
                     finish()
                 },
                 onDecline = {
+                    // 🚨 FIX: Force clear the notification when declining from full screen
+                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                    notificationManager.cancel(callerId.hashCode())
+
                     SignalingClient.getInstance(applicationContext).endCall(callerId) {
                         finish()
                     }
@@ -101,7 +127,6 @@ class IncomingCallActivity : ComponentActivity() {
 @Composable
 fun IncomingCallScreen(licensePlate: String, onAccept: () -> Unit, onDecline: () -> Unit) {
     
-    // 🚨 FIX: Catches the Android Back Swipe / Back Button to ensure the call ends!
     BackHandler {
         onDecline()
     }

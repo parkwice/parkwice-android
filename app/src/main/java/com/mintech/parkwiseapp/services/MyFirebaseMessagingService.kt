@@ -23,6 +23,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
+        Log.d("FCM_DEBUG", "New FCM Token Generated: $token")
         val jwtToken = getSharedPreferences("AppPrefs", MODE_PRIVATE).getString("jwt_token", null)
         if (jwtToken != null) {
             CoroutineScope(Dispatchers.IO).launch {
@@ -40,19 +41,26 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         super.onMessageReceived(remoteMessage)
 
         val data = remoteMessage.data
+        Log.d("FCM_DEBUG", "🚨 Push received! Raw Data: $data")
+
         val callerId = data["callerId"] ?: data["id"]
-        if (callerId == null) return
+        if (callerId == null) {
+            Log.e("FCM_DEBUG", "❌ Aborting: No callerId or id found in payload!")
+            return
+        }
 
         val status = data["status"]
         if (status == "CANCEL_CALL") {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.cancel(callerId.hashCode())
             sendBroadcast(Intent("CANCEL_CALL_ACTION"))
+            Log.d("FCM_DEBUG", "✅ Call cancelled, ringing dismissed.")
             return
         }
 
         val licensePlate = data["licensePlate"] ?: data["handle"] ?: "Vehicle Alert"
 
+        // 1. The default full-screen intent (when the phone is locked)
         val fullScreenIntent = Intent(this, IncomingCallActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra("CALLER_ID", callerId)
@@ -63,7 +71,18 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             this, 0, fullScreenIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Intent for swiping away OR clicking decline
+        // 🚨 2. The explicit Accept Intent (bypasses the ringing screen and connects)
+        val acceptIntent = Intent(this, IncomingCallActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("CALLER_ID", callerId)
+            putExtra("LICENSE_PLATE", licensePlate)
+            putExtra("AUTO_ACCEPT", true) // Tells the activity to skip the ringing screen
+        }
+        val acceptPendingIntent = PendingIntent.getActivity(
+            this, callerId.hashCode() + 2, acceptIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // 3. Intent for swiping away OR clicking decline
         val dismissIntent = Intent(this, CallRejectReceiver::class.java).apply {
             action = "REJECT_CALL_ACTION"
             putExtra("CALLER_ID", callerId)
@@ -80,7 +99,14 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             val channel = NotificationChannel(
                 channelId, "Incoming Emergency Calls", NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                setSound(ringtoneUri, AudioAttributes.Builder().setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build())
+                description = "Rings for incoming Parkwise calls"
+                setSound(
+                    ringtoneUri,
+                    AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .build()
+                )
                 enableLights(true)
                 lightColor = android.graphics.Color.GREEN
                 enableVibration(true)
@@ -97,7 +123,8 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setDeleteIntent(dismissPendingIntent) // Triggers if swiped away
-            .addAction(0, "Decline", dismissPendingIntent) // 🚨 Explicit Decline Button in notification!
+            .addAction(0, "Decline", dismissPendingIntent) // Explicit Decline
+            .addAction(0, "Accept", acceptPendingIntent) // 🚨 Explicit Accept
             .setAutoCancel(true)
             .setOngoing(true)
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
