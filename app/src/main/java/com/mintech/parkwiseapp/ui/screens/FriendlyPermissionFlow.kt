@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.mintech.parkwiseapp.services.AppLogger
 import com.mintech.parkwiseapp.ui.theme.*
 
 @Composable
@@ -20,6 +21,10 @@ fun FriendlyPermissionFlow(
     onCancel: () -> Unit
 ) {
     var showCustomExplanation by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        AppLogger.logEvent("screen_view", mapOf("screen_name" to "PermissionFlow"))
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -30,17 +35,22 @@ fun FriendlyPermissionFlow(
         } else true
 
         if (audioGranted && pushGranted) {
+            AppLogger.logEvent("permissions_granted")
             onPermissionsGranted()
         } else {
+            AppLogger.logEvent("permissions_denied")
             onCancel()
         }
     }
 
     if (showCustomExplanation) {
         AlertDialog(
-            onDismissRequest = onCancel,
+            onDismissRequest = {
+                AppLogger.logEvent("permission_flow_dismissed")
+                onCancel()
+            },
             shape = RoundedCornerShape(16.dp),
-            containerColor = SurfaceHigh, // 🚨 Dark grey background
+            containerColor = SurfaceHigh, 
             titleContentColor = Color.White,
             textContentColor = Color.White,
             title = { 
@@ -50,7 +60,7 @@ fun FriendlyPermissionFlow(
                 Column {
                     Text(
                         "To safely connect you with vehicle owners, Parkwise needs:", 
-                        color = OnSurfaceVariant // Light grey subtext
+                        color = OnSurfaceVariant 
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("🎤 Microphone: To speak during emergency calls.", color = Color.White)
@@ -61,6 +71,7 @@ fun FriendlyPermissionFlow(
             confirmButton = {
                 Button(
                     onClick = {
+                        AppLogger.logEvent("permission_flow_continue_clicked")
                         showCustomExplanation = false
                         val permsToRequest = mutableListOf(Manifest.permission.RECORD_AUDIO)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -68,14 +79,17 @@ fun FriendlyPermissionFlow(
                         }
                         permissionLauncher.launch(permsToRequest.toTypedArray())
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryApp) // 🚨 Parkwise Green
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryApp) 
                 ) {
                     Text("Continue", color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = onCancel) { 
-                    Text("Maybe Later", color = OnSurfaceVariant) // Subtle cancel button
+                TextButton(onClick = {
+                    AppLogger.logEvent("permission_flow_cancel_clicked")
+                    onCancel()
+                }) { 
+                    Text("Maybe Later", color = OnSurfaceVariant) 
                 }
             }
         )

@@ -34,6 +34,10 @@ fun VehicleSetupScreen(onBack: () -> Unit, onSaved: () -> Unit) {
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
+    LaunchedEffect(Unit) {
+        AppLogger.logEvent("screen_view", mapOf("screen_name" to "VehicleSetupScreen"))
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Background)) {
         Column(
             modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
@@ -41,7 +45,10 @@ fun VehicleSetupScreen(onBack: () -> Unit, onSaved: () -> Unit) {
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            IconButton(onClick = onBack, modifier = Modifier.offset(x = (-12).dp)) {
+            IconButton(onClick = {
+                AppLogger.logEvent("vehicle_setup_back_clicked")
+                onBack()
+            }, modifier = Modifier.offset(x = (-12).dp)) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
             }
 

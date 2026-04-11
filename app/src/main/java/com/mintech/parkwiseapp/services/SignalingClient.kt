@@ -51,6 +51,7 @@ class SignalingClient(private val context: Context) {
         socket = IO.socket(ApiConstants.API_URL)
 
         socket?.on(Socket.EVENT_CONNECT) {
+            AppLogger.logEvent("socket_connected")
             val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
             val myId = prefs.getString("user_id", "") ?: ""
             if (myId.isNotEmpty()) {
@@ -113,6 +114,7 @@ class SignalingClient(private val context: Context) {
     }
 
     fun initiateCall(targetId: String) {
+        AppLogger.logEvent("webrtc_initiate_call")
         this.targetUserId = targetId
         isCallActive.value = true
         rtcState.value = "Ringing..."
@@ -122,6 +124,7 @@ class SignalingClient(private val context: Context) {
     }
 
     fun acceptCallBackground(callerId: String) {
+        AppLogger.logEvent("webrtc_accept_call_background")
         this.targetUserId = callerId
         val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
         val myId = prefs.getString("user_id", "") ?: ""
@@ -168,8 +171,10 @@ class SignalingClient(private val context: Context) {
                 override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState?) {
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                         if (newState == PeerConnection.IceConnectionState.CONNECTED || newState == PeerConnection.IceConnectionState.COMPLETED) {
+                            AppLogger.logEvent("webrtc_ice_connected")
                             rtcState.value = "Connected"
                         } else if (newState == PeerConnection.IceConnectionState.FAILED) {
+                            AppLogger.logEvent("webrtc_ice_failed")
                             rtcState.value = "Connection Failed"
                         }
                     }
@@ -260,6 +265,8 @@ class SignalingClient(private val context: Context) {
     }
 
     fun endCall(callerId: String? = null, onCallEnded: (() -> Unit)? = null) {
+        AppLogger.logEvent("webrtc_end_call_emitted")
+        
         if (this.targetUserId == null && callerId != null) {
             this.targetUserId = callerId
         }

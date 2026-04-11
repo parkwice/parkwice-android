@@ -22,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,6 +35,7 @@ import com.mintech.parkwiseapp.services.GoogleLoginRequest
 import com.mintech.parkwiseapp.ui.theme.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import com.mintech.parkwiseapp.services.AppLogger
 
 @Composable
 fun LoginScreen(onLoginSuccess: () -> Unit) {
@@ -43,7 +43,10 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // 1. Configure Google Sign-In Options
+    LaunchedEffect(Unit) {
+        AppLogger.logEvent("screen_view", mapOf("screen_name" to "LoginScreen"))
+    }
+
     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
         .requestIdToken(context.getString(R.string.default_web_client_id))
         .requestEmail()
@@ -52,7 +55,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
 
     val googleSignInClient = remember { GoogleSignIn.getClient(context, gso) }
 
-    // 2. Handle the Result from the Google Popup
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
@@ -71,7 +73,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                         photoUrl = account.photoUrl?.toString() ?: ""
                     )
 
-                    // 🚨 UNWRAPPING RETROFIT RESPONSE
                     val response = ApiService.api.loginWithGoogle(payload)
 
                     if (response.isSuccessful) {
@@ -84,26 +85,31 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                                 .putString("user_email", body.user.email)
                                 .apply()
 
+                            AppLogger.logEvent("login_success", mapOf("method" to "google"))
+                            AppLogger.setUserId(body.user._id)
+
                             isLoading = false
                             onLoginSuccess() 
                         }
                     } else {
+                        AppLogger.logEvent("login_failed", mapOf("reason" to "backend_rejected"))
                         Log.e("AuthError", "Backend rejected Google Auth payload: ${response.errorBody()?.string()}")
                         isLoading = false
                     }
 
                 } catch (e: Exception) {
+                    AppLogger.logEvent("login_failed", mapOf("reason" to "network_error"))
                     Log.e("AuthError", "Failed to login with backend", e)
                     isLoading = false
                 }
             }
         } catch (e: ApiException) {
+            AppLogger.logEvent("login_failed", mapOf("reason" to "google_sign_in_cancelled_or_failed"))
             Log.e("AuthError", "Google Sign-In failed", e)
             isLoading = false
         }
     }
 
-    // --- UI STARTS HERE ---
     Box(modifier = Modifier.fillMaxSize().background(Background)) {
         Box(
             modifier = Modifier
@@ -136,6 +142,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                             .fillMaxWidth()
                             .border(1.dp, OnSurfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                             .clickable(enabled = !isLoading) {
+                                AppLogger.logEvent("login_button_clicked", mapOf("method" to "google"))
                                 isLoading = true
                                 launcher.launch(googleSignInClient.signInIntent)
                             }

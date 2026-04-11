@@ -42,7 +42,6 @@ fun SideDrawerContent(
         drawerContainerColor = SurfaceHigh
     ) {
         Column(modifier = Modifier.padding(24.dp)) {
-            // Header
             AsyncImage(
                 model = photoUrl.ifEmpty { "https://ui-avatars.com/api/?name=${userEmail}" },
                 contentDescription = "Profile Photo",
@@ -54,7 +53,6 @@ fun SideDrawerContent(
             
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = OnSurfaceVariant.copy(alpha = 0.2f))
 
-            // Menu Items
             NavigationDrawerItem(
                 label = { Text("Account", color = Color.White) },
                 selected = false,
@@ -70,11 +68,14 @@ fun SideDrawerContent(
             
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = OnSurfaceVariant.copy(alpha = 0.2f))
 
-            val openUrl = { url: String -> context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            val openUrl = { url: String, eventName: String -> 
+                AppLogger.logEvent(eventName)
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) 
+            }
             
-            NavigationDrawerItem(label = { Text("Terms and Conditions", color = Color.White) }, selected = false, onClick = { openUrl("https://parkwice.com/terms.html") }, colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent))
-            NavigationDrawerItem(label = { Text("Privacy Policy", color = Color.White) }, selected = false, onClick = { openUrl("https://parkwice.com/privacy.html") }, colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent))
-            NavigationDrawerItem(label = { Text("Contact Support", color = Color.White) }, selected = false, onClick = { openUrl("https://parkwice.com/contact.html") }, colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent))
+            NavigationDrawerItem(label = { Text("Terms and Conditions", color = Color.White) }, selected = false, onClick = { openUrl("https://parkwice.com/terms.html", "terms_clicked") }, colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent))
+            NavigationDrawerItem(label = { Text("Privacy Policy", color = Color.White) }, selected = false, onClick = { openUrl("https://parkwice.com/privacy.html", "privacy_clicked") }, colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent))
+            NavigationDrawerItem(label = { Text("Contact Support", color = Color.White) }, selected = false, onClick = { openUrl("https://parkwice.com/contact.html", "contact_support_clicked") }, colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent))
         }
     }
 }
@@ -89,6 +90,10 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
     val jwtToken = prefs.getString("jwt_token", "") ?: ""
 
+    LaunchedEffect(Unit) {
+        AppLogger.logEvent("screen_view", mapOf("screen_name" to "AccountScreen"))
+    }
+
     Scaffold(
         topBar = { TopAppBar(title = { Text("Account", color = Color.White) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Background)) },
         containerColor = Background
@@ -96,7 +101,10 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
         Column(modifier = Modifier.padding(padding).fillMaxSize().padding(24.dp)) {
             
             Button(
-                onClick = { showLogoutDialog = true },
+                onClick = { 
+                    AppLogger.logEvent("logout_clicked")
+                    showLogoutDialog = true 
+                },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = SurfaceLow)
             ) { Text("Log Out", color = ErrorApp) }
@@ -106,7 +114,10 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
 
             Button(
-                onClick = { showDeleteDialog = true },
+                onClick = { 
+                    AppLogger.logEvent("delete_account_clicked")
+                    showDeleteDialog = true 
+                },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = SurfaceLow)
             ) { Text("Delete Account", color = ErrorApp) }
@@ -119,6 +130,7 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                 text = { Text("Are you sure you want to log out?") },
                 confirmButton = {
                     TextButton(onClick = {
+                        AppLogger.logEvent("logout_success")
                         AppLogger.clearUser()
                         prefs.edit().clear().apply()
                         onLogout()
@@ -139,6 +151,7 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                         scope.launch {
                             val res = ApiService.api.deleteAccount("Bearer $jwtToken")
                             if (res.isSuccessful) {
+                                AppLogger.logEvent("delete_account_success")
                                 AppLogger.clearUser()
                                 prefs.edit().clear().apply()
                                 onLogout()
@@ -165,6 +178,7 @@ fun CallHistoryScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
+        AppLogger.logEvent("screen_view", mapOf("screen_name" to "CallHistoryScreen"))
         val historyRes = ApiService.api.getCallHistory("Bearer $jwtToken")
         val blockedRes = ApiService.api.getBlockedUsers("Bearer $jwtToken")
         if (historyRes.isSuccessful) history = historyRes.body() ?: emptyList()
@@ -193,17 +207,22 @@ fun CallHistoryScreen(onBack: () -> Unit) {
                                     val id = record.callerId ?: return@launch
                                     if (isBlocked) {
                                         if (ApiService.api.unblockUser("Bearer $jwtToken", mapOf("targetId" to id)).isSuccessful) {
+                                            AppLogger.logEvent("user_unblocked")
                                             blockedIds = blockedIds - id
                                         }
                                     } else {
                                         if (ApiService.api.blockUser("Bearer $jwtToken", mapOf("targetId" to id)).isSuccessful) {
+                                            AppLogger.logEvent("user_blocked")
                                             blockedIds = blockedIds + id
                                         }
                                     }
                                 }
                             }) { Text(if (isBlocked) "Unblock" else "Block", color = if (isBlocked) Color.Green else ErrorApp, fontWeight = FontWeight.Bold) }
                             
-                            TextButton(onClick = { selectedUserIdForReport = record.callerId }) {
+                            TextButton(onClick = { 
+                                AppLogger.logEvent("report_user_clicked")
+                                selectedUserIdForReport = record.callerId 
+                            }) {
                                 Text("Report", color = Color(0xFFFFA500), fontWeight = FontWeight.Bold)
                             }
                         }

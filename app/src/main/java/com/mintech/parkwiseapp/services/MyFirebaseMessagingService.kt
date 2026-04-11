@@ -24,6 +24,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         Log.d("FCM_DEBUG", "New FCM Token Generated: $token")
+        
+        AppLogger.logEvent("fcm_token_generated")
+
         val jwtToken = getSharedPreferences("AppPrefs", MODE_PRIVATE).getString("jwt_token", null)
         if (jwtToken != null) {
             CoroutineScope(Dispatchers.IO).launch {
@@ -51,6 +54,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         val status = data["status"]
         if (status == "CANCEL_CALL") {
+            AppLogger.logEvent("incoming_call_push_cancelled")
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.cancel(callerId.hashCode())
             sendBroadcast(Intent("CANCEL_CALL_ACTION"))
@@ -58,6 +62,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             return
         }
 
+        AppLogger.logEvent("incoming_call_push_received")
         val licensePlate = data["licensePlate"] ?: data["handle"] ?: "Vehicle Alert"
 
         // 1. The default full-screen intent (when the phone is locked)
@@ -132,6 +137,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         try {
             notificationManager.notify(callerId.hashCode(), notificationBuilder.build())
         } catch (e: SecurityException) {
+            AppLogger.logEvent("notification_blocked_by_os")
             Log.e("FCM_DEBUG", "❌ OS blocked notification!", e)
         }
     }

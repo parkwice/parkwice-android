@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.mintech.parkwiseapp.services.AppLogger
 import com.mintech.parkwiseapp.services.SignalingClient
 import com.mintech.parkwiseapp.ui.theme.*
 
@@ -41,6 +43,7 @@ class IncomingCallActivity : ComponentActivity() {
     private val cancelReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == "CANCEL_CALL_ACTION") {
+                AppLogger.logEvent("incoming_call_cancelled_remotely")
                 finish() 
             }
         }
@@ -74,9 +77,8 @@ class IncomingCallActivity : ComponentActivity() {
         
         val autoAccept = intent.getBooleanExtra("AUTO_ACCEPT", false)
 
-        // If the user tapped "Accept" directly from the heads-up notification:
         if (autoAccept) {
-            // 🚨 FIX: Force clear the lingering notification from the tray
+            AppLogger.logEvent("incoming_call_auto_accepted")
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
             notificationManager.cancel(callerId.hashCode())
 
@@ -85,16 +87,15 @@ class IncomingCallActivity : ComponentActivity() {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             }
             startActivity(mainIntent)
-            finish() // Close this activity immediately
-            return // Prevent the ringing screen from drawing
+            finish() 
+            return 
         }
 
-        // Otherwise, show the normal ringing screen
         setContent {
             IncomingCallScreen(
                 licensePlate = licensePlate,
                 onAccept = {
-                    // 🚨 FIX: Force clear the notification when accepting from full screen
+                    AppLogger.logEvent("incoming_call_accepted")
                     val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
                     notificationManager.cancel(callerId.hashCode())
 
@@ -106,7 +107,7 @@ class IncomingCallActivity : ComponentActivity() {
                     finish()
                 },
                 onDecline = {
-                    // 🚨 FIX: Force clear the notification when declining from full screen
+                    AppLogger.logEvent("incoming_call_declined")
                     val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
                     notificationManager.cancel(callerId.hashCode())
 
@@ -127,6 +128,10 @@ class IncomingCallActivity : ComponentActivity() {
 @Composable
 fun IncomingCallScreen(licensePlate: String, onAccept: () -> Unit, onDecline: () -> Unit) {
     
+    LaunchedEffect(Unit) {
+        AppLogger.logEvent("screen_view", mapOf("screen_name" to "IncomingCallScreen"))
+    }
+
     BackHandler {
         onDecline()
     }

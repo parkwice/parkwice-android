@@ -64,9 +64,12 @@ fun DashboardScreen(navController: NavController) {
     var isCalling by remember { mutableStateOf(false) }
     var vehicles by remember { mutableStateOf<List<Vehicle>>(emptyList()) }
 
-    // Permission Flow State
     var showPermissionFlow by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    LaunchedEffect(Unit) {
+        AppLogger.logEvent("screen_view", mapOf("screen_name" to "DashboardScreen"))
+    }
 
     fun loadVehicles() {
         coroutineScope.launch {
@@ -74,7 +77,6 @@ fun DashboardScreen(navController: NavController) {
                 val response = ApiService.api.getVehicles("Bearer $jwtToken")
                 if (response.isSuccessful) {
                     vehicles = response.body() ?: emptyList()
-                    // 🚨 If they have vehicles already, but lack permissions, prompt them!
                     if (vehicles.isNotEmpty() && !arePermissionsGranted(context)) {
                         showPermissionFlow = true
                     }
@@ -104,7 +106,6 @@ fun DashboardScreen(navController: NavController) {
             )
         }
     ) {
-        // --- PERMISSION OVERLAY ---
         if (showPermissionFlow) {
             FriendlyPermissionFlow(
                 onPermissionsGranted = {
@@ -120,16 +121,15 @@ fun DashboardScreen(navController: NavController) {
         }
 
         Column(modifier = Modifier.fillMaxSize().background(Background)) {
-            // --- HEADER ---
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 🚨 Avatar opens Drawer
                 AsyncImage(
                     model = userPhoto.ifEmpty { "https://ui-avatars.com/api/?name=${userEmail}" },
                     contentDescription = "Profile",
                     modifier = Modifier.size(44.dp).clip(CircleShape).clickable {
+                        AppLogger.logEvent("drawer_opened")
                         coroutineScope.launch { drawerState.open() }
                     }
                 )
@@ -140,7 +140,6 @@ fun DashboardScreen(navController: NavController) {
                 }
             }
 
-            // --- MAIN CONTENT ---
             Column(modifier = Modifier.padding(horizontal = 24.dp).weight(1f)) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Hassle-Free\nCommunication", color = PrimaryApp, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
@@ -148,7 +147,6 @@ fun DashboardScreen(navController: NavController) {
                 Text("Calls are completely encrypted; zero data shared.", color = OnSurfaceVariant)
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Plate Input
                 Column(
                     modifier = Modifier.fillMaxWidth().background(SurfaceLow, RoundedCornerShape(32.dp))
                         .border(1.dp, PrimaryApp.copy(alpha = 0.1f), RoundedCornerShape(32.dp)).padding(24.dp)
@@ -172,7 +170,6 @@ fun DashboardScreen(navController: NavController) {
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // 🚨 Call Button with Error Parsing
                     Button(
                         onClick = {
                             isCalling = true
@@ -214,7 +211,7 @@ fun DashboardScreen(navController: NavController) {
                     Spacer(modifier = Modifier.weight(1f))
                     Row(
                         modifier = Modifier.background(SurfaceHigh, RoundedCornerShape(8.dp)).clickable { 
-                            // 🚨 Check Permissions before adding a vehicle
+                            AppLogger.logEvent("add_vehicle_clicked")
                             if (!arePermissionsGranted(context)) {
                                 showPermissionFlow = true
                                 pendingAction = { navController.navigate("setup") }
@@ -243,10 +240,14 @@ fun DashboardScreen(navController: NavController) {
                     ) {
                         items(vehicles) { vehicle ->
                             VehicleCard(vehicle = vehicle) {
+                                AppLogger.logEvent("delete_vehicle_clicked")
                                 coroutineScope.launch {
                                     try {
-                                        ApiService.api.deleteVehicle("Bearer $jwtToken", vehicle._id)
-                                        loadVehicles()
+                                        val res = ApiService.api.deleteVehicle("Bearer $jwtToken", vehicle._id)
+                                        if (res.isSuccessful) {
+                                            AppLogger.logEvent("delete_vehicle_success")
+                                            loadVehicles()
+                                        }
                                     } catch (e: Exception) {
                                         AppLogger.recordError(e)
                                     }

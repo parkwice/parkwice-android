@@ -33,6 +33,7 @@ class MainActivity : ComponentActivity() {
 
         // Init Analytics
         AppLogger.init(FirebaseAnalytics.getInstance(this))
+        AppLogger.logEvent("app_open")
 
         val darkAppColor = android.graphics.Color.parseColor("#1A232A")
         enableEdgeToEdge(

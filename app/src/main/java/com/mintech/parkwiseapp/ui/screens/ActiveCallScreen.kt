@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mintech.parkwiseapp.services.AppLogger
 import com.mintech.parkwiseapp.services.SignalingClient
 import com.mintech.parkwiseapp.ui.theme.*
 import kotlinx.coroutines.delay
@@ -33,6 +34,10 @@ fun ActiveCallScreen(onEndCall: () -> Unit) {
     var isSpeaker by remember { mutableStateOf(false) }
     
     var callDurationSeconds by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        AppLogger.logEvent("screen_view", mapOf("screen_name" to "ActiveCallScreen"))
+    }
 
     LaunchedEffect(rtcState) {
         if (rtcState == "Connected") {
@@ -83,6 +88,7 @@ fun ActiveCallScreen(onEndCall: () -> Unit) {
                     isActive = isMuted
                 ) { 
                     isMuted = !isMuted
+                    AppLogger.logEvent("call_mute_toggled", mapOf("is_muted" to isMuted.toString()))
                     signalingClient.toggleMute(isMuted)
                 }
                 
@@ -92,6 +98,7 @@ fun ActiveCallScreen(onEndCall: () -> Unit) {
                     isActive = isSpeaker
                 ) { 
                     isSpeaker = !isSpeaker
+                    AppLogger.logEvent("call_speaker_toggled", mapOf("is_speaker" to isSpeaker.toString()))
                     signalingClient.toggleSpeaker(isSpeaker)
                 }
             }
@@ -101,7 +108,10 @@ fun ActiveCallScreen(onEndCall: () -> Unit) {
             Row(
                 modifier = Modifier
                     .background(ErrorApp, CircleShape)
-                    .clickable { onEndCall() }
+                    .clickable {
+                        AppLogger.logEvent("call_ended_by_user", mapOf("duration_seconds" to callDurationSeconds.toString()))
+                        onEndCall() 
+                    }
                     .padding(horizontal = 32.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
