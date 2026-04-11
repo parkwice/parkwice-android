@@ -1,5 +1,7 @@
 package com.mintech.parkwiseapp.ui.screens
 
+import android.app.Activity
+import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,6 +36,15 @@ fun ActiveCallScreen(onEndCall: () -> Unit) {
     var isSpeaker by remember { mutableStateOf(false) }
     
     var callDurationSeconds by remember { mutableIntStateOf(0) }
+
+    // 🚨 Keep screen awake while this Composable is in the UI tree
+    val activity = context as? Activity
+    DisposableEffect(Unit) {
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     LaunchedEffect(Unit) {
         AppLogger.logEvent("screen_view", mapOf("screen_name" to "ActiveCallScreen"))

@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
@@ -121,6 +122,7 @@ fun DashboardScreen(navController: NavController) {
         }
 
         Column(modifier = Modifier.fillMaxSize().background(Background)) {
+            // --- HEADER (Sticky at Top) ---
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -140,117 +142,130 @@ fun DashboardScreen(navController: NavController) {
                 }
             }
 
-            Column(modifier = Modifier.padding(horizontal = 24.dp).weight(1f)) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Hassle-Free\nCommunication", color = PrimaryApp, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Calls are completely encrypted; zero data shared.", color = OnSurfaceVariant)
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Column(
-                    modifier = Modifier.fillMaxWidth().background(SurfaceLow, RoundedCornerShape(32.dp))
-                        .border(1.dp, PrimaryApp.copy(alpha = 0.1f), RoundedCornerShape(32.dp)).padding(24.dp)
-                ) {
-                    Text("Plate Number", color = OnSurfaceVariant, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth().background(SurfaceLowest, RoundedCornerShape(16.dp)).padding(horizontal = 16.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TextField(
-                            value = searchPlate,
-                            onValueChange = { searchPlate = it.uppercase() },
-                            colors = TextFieldDefaults.textFieldColors(backgroundColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, textColor = PrimaryApp, cursorColor = PrimaryApp),
-                            placeholder = { Text("ABC-1234", color = OnSurfaceVariant.copy(alpha = 0.5f), fontSize = 24.sp, fontWeight = FontWeight.Bold) },
-                            textStyle = LocalTextStyle.current.copy(fontSize = 24.sp, fontWeight = FontWeight.Bold),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Button(
-                        onClick = {
-                            isCalling = true
-                            AppLogger.logEvent("call_attempted")
-                            coroutineScope.launch {
-                                try {
-                                    val response = ApiService.api.initiateCall("Bearer $jwtToken", CallInitiateRequest(searchPlate.trim()))
-                                    
-                                    if (response.isSuccessful && !response.body()?.targetUserId.isNullOrEmpty()) {
-                                        AppLogger.logEvent("call_connected")
-                                        SignalingClient.getInstance(context).initiateCall(response.body()!!.targetUserId!!)
-                                    } else {
-                                        val errorMsg = ApiService.extractErrorMessage(response.errorBody())
-                                        AppLogger.logEvent("call_failed", mapOf("reason" to errorMsg))
-                                        Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
-                                    }
-                                } catch (e: Exception) {
-                                    AppLogger.recordError(e, "Call init failed")
-                                    Toast.makeText(context, "Network error", Toast.LENGTH_SHORT).show()
-                                } finally {
-                                    isCalling = false
-                                }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(backgroundColor = PrimaryApp, disabledBackgroundColor = PrimaryApp.copy(alpha = 0.5f)),
-                        enabled = searchPlate.isNotEmpty() && !isCalling
-                    ) {
-                        if (isCalling) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                        else Text("Contact Owner", color = SurfaceLowest, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            // --- FULL SCREEN SCROLLABLE GRID ---
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Header Texts
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Hassle-Free\nCommunication", color = PrimaryApp, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Calls are completely encrypted; zero data shared.", color = OnSurfaceVariant)
+                        Spacer(modifier = Modifier.height(24.dp))
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Active Vehicles", color = PrimaryApp, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.weight(1f))
-                    Row(
-                        modifier = Modifier.background(SurfaceHigh, RoundedCornerShape(8.dp)).clickable { 
-                            AppLogger.logEvent("add_vehicle_clicked")
-                            if (!arePermissionsGranted(context)) {
-                                showPermissionFlow = true
-                                pendingAction = { navController.navigate("setup") }
-                            } else {
-                                navController.navigate("setup")
-                            }
-                        }.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                // Plate Input Block
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().background(SurfaceLow, RoundedCornerShape(32.dp))
+                            .border(1.dp, PrimaryApp.copy(alpha = 0.1f), RoundedCornerShape(32.dp)).padding(24.dp)
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = null, tint = PrimaryApp, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add Vehicle", color = PrimaryApp, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
+                        Text("Plate Number", color = OnSurfaceVariant, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().background(SurfaceLowest, RoundedCornerShape(16.dp)).padding(horizontal = 16.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextField(
+                                value = searchPlate,
+                                onValueChange = { searchPlate = it.uppercase() },
+                                colors = TextFieldDefaults.textFieldColors(backgroundColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, textColor = PrimaryApp, cursorColor = PrimaryApp),
+                                placeholder = { Text("ABC-1234", color = OnSurfaceVariant.copy(alpha = 0.5f), fontSize = 24.sp, fontWeight = FontWeight.Bold) },
+                                textStyle = LocalTextStyle.current.copy(fontSize = 24.sp, fontWeight = FontWeight.Bold),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
 
-                if (vehicles.isEmpty()) {
-                    Text("No vehicles registered yet.", color = OnSurfaceVariant, modifier = Modifier.padding(vertical = 16.dp))
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.padding(bottom = 24.dp)
-                    ) {
-                        items(vehicles) { vehicle ->
-                            VehicleCard(vehicle = vehicle) {
-                                AppLogger.logEvent("delete_vehicle_clicked")
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = {
+                                isCalling = true
+                                AppLogger.logEvent("call_attempted")
                                 coroutineScope.launch {
                                     try {
-                                        val res = ApiService.api.deleteVehicle("Bearer $jwtToken", vehicle._id)
-                                        if (res.isSuccessful) {
-                                            AppLogger.logEvent("delete_vehicle_success")
-                                            loadVehicles()
+                                        val response = ApiService.api.initiateCall("Bearer $jwtToken", CallInitiateRequest(searchPlate.trim()))
+                                        
+                                        if (response.isSuccessful && !response.body()?.targetUserId.isNullOrEmpty()) {
+                                            AppLogger.logEvent("call_connected")
+                                            SignalingClient.getInstance(context).initiateCall(response.body()!!.targetUserId!!)
+                                        } else {
+                                            val errorMsg = ApiService.extractErrorMessage(response.errorBody())
+                                            AppLogger.logEvent("call_failed", mapOf("reason" to errorMsg))
+                                            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
                                         }
                                     } catch (e: Exception) {
-                                        AppLogger.recordError(e)
+                                        AppLogger.recordError(e, "Call init failed")
+                                        Toast.makeText(context, "Network error", Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        isCalling = false
                                     }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(backgroundColor = PrimaryApp, disabledBackgroundColor = PrimaryApp.copy(alpha = 0.5f)),
+                            enabled = searchPlate.isNotEmpty() && !isCalling
+                        ) {
+                            if (isCalling) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            else Text("Contact Owner", color = SurfaceLowest, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Active Vehicles Title Row
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column {
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Text("Active Vehicles", color = PrimaryApp, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.weight(1f))
+                            Row(
+                                modifier = Modifier.background(SurfaceHigh, RoundedCornerShape(8.dp)).clickable { 
+                                    AppLogger.logEvent("add_vehicle_clicked")
+                                    if (!arePermissionsGranted(context)) {
+                                        showPermissionFlow = true
+                                        pendingAction = { navController.navigate("setup") }
+                                    } else {
+                                        navController.navigate("setup")
+                                    }
+                                }.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = null, tint = PrimaryApp, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Add Vehicle", color = PrimaryApp, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                // The Vehicles or Empty State
+                if (vehicles.isEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Text("No vehicles registered yet.", color = OnSurfaceVariant, modifier = Modifier.padding(vertical = 16.dp))
+                    }
+                } else {
+                    items(vehicles) { vehicle ->
+                        VehicleCard(vehicle = vehicle) {
+                            AppLogger.logEvent("delete_vehicle_clicked")
+                            coroutineScope.launch {
+                                try {
+                                    val res = ApiService.api.deleteVehicle("Bearer $jwtToken", vehicle._id)
+                                    if (res.isSuccessful) {
+                                        AppLogger.logEvent("delete_vehicle_success")
+                                        loadVehicles()
+                                    }
+                                } catch (e: Exception) {
+                                    AppLogger.recordError(e)
                                 }
                             }
                         }

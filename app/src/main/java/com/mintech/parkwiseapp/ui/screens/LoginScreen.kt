@@ -1,6 +1,8 @@
 package com.mintech.parkwiseapp.ui.screens
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,12 +12,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.Checkbox
+import androidx.compose.material.CheckboxDefaults
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.Icon
 import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,6 +26,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -31,15 +35,18 @@ import com.google.android.gms.common.api.ApiException
 import com.google.firebase.messaging.FirebaseMessaging
 import com.mintech.parkwiseapp.R
 import com.mintech.parkwiseapp.services.ApiService
+import com.mintech.parkwiseapp.services.AppLogger
 import com.mintech.parkwiseapp.services.GoogleLoginRequest
 import com.mintech.parkwiseapp.ui.theme.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import com.mintech.parkwiseapp.services.AppLogger
 
 @Composable
 fun LoginScreen(onLoginSuccess: () -> Unit) {
     var isLoading by remember { mutableStateOf(false) }
+    var termsAccepted by remember { mutableStateOf(false) }
+    var showTermsError by remember { mutableStateOf(false) }
+    
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -110,6 +117,11 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
         }
     }
 
+    val openTerms = {
+        AppLogger.logEvent("terms_clicked_login")
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://parkwice.com/terms.html")))
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Background)) {
         Box(
             modifier = Modifier
@@ -135,16 +147,65 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                 Text("Sign in to manage your vehicle emergency contacts and secure your roadside response.", color = OnSurfaceVariant, fontSize = 16.sp)
                 Spacer(modifier = Modifier.height(32.dp))
 
-                Column(modifier = Modifier.background(SurfaceLowest, RoundedCornerShape(28.dp)).padding(32.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                Column(modifier = Modifier.background(SurfaceLowest, RoundedCornerShape(28.dp)).padding(32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+                    // 🚨 Terms and Conditions Checkbox (Repurposed Data Privacy UI)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceLow, RoundedCornerShape(12.dp))
+                            .border(1.dp, if (showTermsError) ErrorApp else OnSurfaceVariant.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                            .clickable { 
+                                termsAccepted = !termsAccepted 
+                                showTermsError = false
+                            }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = termsAccepted,
+                            onCheckedChange = { 
+                                termsAccepted = it 
+                                showTermsError = false
+                            },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = PrimaryApp,
+                                uncheckedColor = if (showTermsError) ErrorApp else OnSurfaceVariant,
+                                checkmarkColor = Color.White
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Column {
+                            Text(
+                                "Terms & Conditions", 
+                                color = if (showTermsError) ErrorApp else PrimaryApp, 
+                                fontSize = 14.sp, 
+                                fontWeight = FontWeight.Bold,
+                                textDecoration = TextDecoration.Underline,
+                                modifier = Modifier.clickable { openTerms() }
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "I accept the privacy policy & terms.", 
+                                color = if (showTermsError) ErrorApp else OnSurfaceVariant, 
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
 
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, OnSurfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .border(1.dp, if (showTermsError) ErrorApp else OnSurfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                             .clickable(enabled = !isLoading) {
-                                AppLogger.logEvent("login_button_clicked", mapOf("method" to "google"))
-                                isLoading = true
-                                launcher.launch(googleSignInClient.signInIntent)
+                                if (!termsAccepted) {
+                                    showTermsError = true
+                                    // Removed the Toast here as requested!
+                                } else {
+                                    AppLogger.logEvent("login_button_clicked", mapOf("method" to "google"))
+                                    isLoading = true
+                                    launcher.launch(googleSignInClient.signInIntent)
+                                }
                             }
                             .padding(vertical = 16.dp),
                         contentAlignment = Alignment.Center
@@ -157,15 +218,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Text("Sign in with Google", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             }
-                        }
-                    }
-
-                    Row(modifier = Modifier.fillMaxWidth().background(SurfaceLow, RoundedCornerShape(12.dp)).border(1.dp, OnSurfaceVariant.copy(alpha = 0.2f), RoundedCornerShape(12.dp)).padding(16.dp)) {
-                        Icon(Icons.Filled.Shield, contentDescription = null, tint = Color(0xFF8B9BA5), modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text("Data Privacy", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("Your vehicle data and contact list are encrypted.", color = OnSurfaceVariant, fontSize = 12.sp)
                         }
                     }
                 }
