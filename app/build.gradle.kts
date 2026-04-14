@@ -31,6 +31,11 @@ android {
                 "proguard-rules.pro"
             )
         }
+
+        create("profile") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
