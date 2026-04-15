@@ -2,11 +2,13 @@ package com.mintech.parkwiseapp.services
 
 import android.content.Context
 import android.media.AudioManager
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
+import com.mintech.parkwiseapp.R // 🚨 NEW: Needed to access R.raw.ringback
 import com.mintech.parkwiseapp.core.ApiConstants
 import io.socket.client.IO
 import io.socket.client.Socket
@@ -45,6 +47,9 @@ class SignalingClient(private val context: Context) {
     private var hasRemoteDescription = false
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    
+    // 🚨 NEW: MediaPlayer for the ringing sound
+    private var ringbackPlayer: MediaPlayer? = null
 
     init {
         initWebRTC()
@@ -90,6 +95,9 @@ class SignalingClient(private val context: Context) {
             mainHandler.post {
                 offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) } 
                 rtcState.value = "Ringing..."
+                
+                // 🚨 NEW: Start playing the ringback tone!
+                startRingbackTone()
             }
         }
 
@@ -100,7 +108,10 @@ class SignalingClient(private val context: Context) {
                 offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
                 rtcState.value = "Connecting..." 
                 
-                // 🚨 NEW: Trigger native Android Haptic Feedback when they accept!
+                // 🚨 NEW: Stop the ringing sound once they answer
+                stopRingbackTone()
+                
+                // Trigger native Android Haptic Feedback when they accept
                 triggerHapticFeedback()
             }
             startWebRTCCall(responderId)
@@ -142,7 +153,34 @@ class SignalingClient(private val context: Context) {
         socket?.on("call-ended") { cleanup() }
     }
     
-    // 🚨 NEW: Helper function to handle safe haptic feedback across all Android versions
+    // MARK: - 🚨 NEW: Audio Player Functions
+    private fun startRingbackTone() {
+        try {
+            if (ringbackPlayer == null) {
+                // Creates the player using your res/raw/ringback file
+                ringbackPlayer = MediaPlayer.create(context, R.raw.ringback)
+                ringbackPlayer?.isLooping = true
+            }
+            ringbackPlayer?.start()
+        } catch (e: Exception) {
+            AppLogger.recordError(e, "Failed to play ringback tone")
+        }
+    }
+
+    private fun stopRingbackTone() {
+        try {
+            ringbackPlayer?.let {
+                if (it.isPlaying) {
+                    it.stop()
+                }
+                it.release()
+            }
+            ringbackPlayer = null
+        } catch (e: Exception) {
+            AppLogger.recordError(e, "Error stopping ringback tone")
+        }
+    }
+    
     private fun triggerHapticFeedback() {
         try {
             val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
@@ -181,6 +219,7 @@ class SignalingClient(private val context: Context) {
         offlineTimeoutRunnable = Runnable {
             if (rtcState.value == "Calling...") {
                 rtcState.value = "User Unreachable"
+                stopRingbackTone() // 🚨 Safety stop
                 mainHandler.postDelayed({
                     endCall()
                 }, 2000)
@@ -334,6 +373,7 @@ class SignalingClient(private val context: Context) {
     fun endCall(callerId: String? = null, onCallEnded: (() -> Unit)? = null) {
         AppLogger.logEvent("webrtc_end_call_emitted")
         offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        stopRingbackTone() // 🚨 Ensure ringing stops if caller hangs up early
         
         if (this.targetUserId == null && callerId != null) {
             this.targetUserId = callerId
@@ -382,6 +422,8 @@ class SignalingClient(private val context: Context) {
 
     fun cleanup() {
         offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        stopRingbackTone() // 🚨 Final cleanup safety
+        
         peerConnection?.close()
         peerConnection = null
         socket?.disconnect()
