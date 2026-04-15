@@ -25,6 +25,10 @@ interface ParkwiseApi {
     @POST("auth/fcm")
     suspend fun syncDeviceToken(@Header("Authorization") token: String, @Body req: TokenSyncRequest): Response<Unit>
 
+    // 🚨 NEW: Added the secure logout route to clear push tokens
+    @POST("auth/logout")
+    suspend fun logout(@Header("Authorization") token: String): Response<Unit>
+
     @GET("vehicles")
     suspend fun getVehicles(@Header("Authorization") token: String): Response<List<Vehicle>>
 

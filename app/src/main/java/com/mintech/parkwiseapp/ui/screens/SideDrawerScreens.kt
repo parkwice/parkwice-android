@@ -88,6 +88,8 @@ fun SideDrawerContent(
 fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var isLoggingOut by remember { mutableStateOf(false) }
+    
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
@@ -128,18 +130,44 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
 
         if (showLogoutDialog) {
             AlertDialog(
-                onDismissRequest = { showLogoutDialog = false },
+                onDismissRequest = { if (!isLoggingOut) showLogoutDialog = false },
                 title = { Text("Confirm Logout") },
                 text = { Text("Are you sure you want to log out?") },
                 confirmButton = {
-                    TextButton(onClick = {
-                        AppLogger.logEvent("logout_success")
-                        AppLogger.clearUser()
-                        prefs.edit().clear().apply()
-                        onLogout()
-                    }) { Text("Log Out", color = ErrorApp) }
+                    TextButton(
+                        enabled = !isLoggingOut,
+                        onClick = {
+                            isLoggingOut = true
+                            scope.launch {
+                                try {
+                                    // 🚨 NEW: Hit the backend to clear FCM/VoIP tokens first!
+                                    ApiService.api.logout("Bearer $jwtToken")
+                                } catch (e: Exception) {
+                                    AppLogger.recordError(e, "Logout API failed to clear tokens")
+                                } finally {
+                                    // Always clear local session even if the network fails
+                                    AppLogger.logEvent("logout_success")
+                                    AppLogger.clearUser()
+                                    prefs.edit().clear().apply()
+                                    isLoggingOut = false
+                                    onLogout()
+                                }
+                            }
+                        }
+                    ) { 
+                        if (isLoggingOut) {
+                            CircularProgressIndicator(color = ErrorApp, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Text("Log Out", color = ErrorApp) 
+                        }
+                    }
                 },
-                dismissButton = { TextButton(onClick = { showLogoutDialog = false }) { Text("Cancel") } },
+                dismissButton = { 
+                    TextButton(
+                        enabled = !isLoggingOut,
+                        onClick = { showLogoutDialog = false }
+                    ) { Text("Cancel") } 
+                },
                 containerColor = SurfaceHigh, textContentColor = Color.White, titleContentColor = Color.White
             )
         }
@@ -225,7 +253,6 @@ fun CallHistoryScreen(onBack: () -> Unit) {
     
     var callingPlate by remember { mutableStateOf<String?>(null) }
     
-    // 🚨 NEW: Permission state for history screen calls
     var showPermissionFlow by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     
@@ -246,7 +273,6 @@ fun CallHistoryScreen(onBack: () -> Unit) {
         containerColor = Background
     ) { padding ->
         
-        // 🚨 NEW: Show permission popup if triggered
         if (showPermissionFlow) {
             FriendlyPermissionFlow(
                 onPermissionsGranted = {
@@ -290,7 +316,6 @@ fun CallHistoryScreen(onBack: () -> Unit) {
                             } else {
                                 IconButton(
                                     onClick = {
-                                        // 🚨 NEW: Extract history call logic so we can delay it for permissions
                                         val performCallFromHistory = {
                                             callingPlate = record.licensePlate
                                             AppLogger.logEvent("call_attempted_from_history")
@@ -316,8 +341,12 @@ fun CallHistoryScreen(onBack: () -> Unit) {
                                             }
                                         }
 
-                                        // 🚨 Check permissions before calling
-                                        if (!arePermissionsGranted(context)) {
+                                        val audioGranted = ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                        val pushGranted = if (android.os.Build.VERSION.SDK_INT >= 33) {
+                                            ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                        } else true
+
+                                        if (!(audioGranted && pushGranted)) {
                                             showPermissionFlow = true
                                             pendingAction = { performCallFromHistory() }
                                         } else {
