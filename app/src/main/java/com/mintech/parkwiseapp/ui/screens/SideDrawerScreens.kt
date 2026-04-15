@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,7 +24,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mintech.parkwiseapp.services.ApiService
+import com.mintech.parkwiseapp.services.CallInitiateRequest
 import com.mintech.parkwiseapp.services.CallRecord
+import com.mintech.parkwiseapp.services.SignalingClient
 import com.mintech.parkwiseapp.ui.theme.*
 import kotlinx.coroutines.launch
 import com.mintech.parkwiseapp.services.AppLogger
@@ -166,6 +169,52 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     }
 }
 
+// 🚨 NEW: Data class and algorithm to group consecutive calls
+data class GroupedCallRecord(
+    val licensePlate: String,
+    val callerId: String?,
+    val receiverId: String?,
+    val lastCallTime: String?,
+    val callCount: Int
+)
+
+fun groupHistory(history: List<CallRecord>): List<GroupedCallRecord> {
+    if (history.isEmpty()) return emptyList()
+    val grouped = mutableListOf<GroupedCallRecord>()
+    var currentGroup = mutableListOf(history[0])
+
+    for (i in 1 until history.size) {
+        val record = history[i]
+        // Group consecutive records with the same license plate
+        if (record.licensePlate == currentGroup.first().licensePlate) {
+            currentGroup.add(record)
+        } else {
+            grouped.add(
+                GroupedCallRecord(
+                    licensePlate = currentGroup.first().licensePlate,
+                    callerId = currentGroup.first().callerId,
+                    receiverId = currentGroup.first().receiverId,
+                    lastCallTime = currentGroup.first().createdAt,
+                    callCount = currentGroup.size
+                )
+            )
+            currentGroup = mutableListOf(record)
+        }
+    }
+    if (currentGroup.isNotEmpty()) {
+        grouped.add(
+            GroupedCallRecord(
+                licensePlate = currentGroup.first().licensePlate,
+                callerId = currentGroup.first().callerId,
+                receiverId = currentGroup.first().receiverId,
+                lastCallTime = currentGroup.first().createdAt,
+                callCount = currentGroup.size
+            )
+        )
+    }
+    return grouped
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CallHistoryScreen(onBack: () -> Unit) {
@@ -175,6 +224,10 @@ fun CallHistoryScreen(onBack: () -> Unit) {
     var history by remember { mutableStateOf<List<CallRecord>>(emptyList()) }
     var blockedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedUserIdForReport by remember { mutableStateOf<String?>(null) }
+    
+    // 🚨 NEW: Track loading state for inline calling
+    var callingPlate by remember { mutableStateOf<String?>(null) }
+    
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -185,23 +238,68 @@ fun CallHistoryScreen(onBack: () -> Unit) {
         if (blockedRes.isSuccessful) blockedIds = blockedRes.body()?.toSet() ?: emptySet()
     }
 
+    val groupedHistory = remember(history) { groupHistory(history) }
+
     Scaffold(
         topBar = { TopAppBar(title = { Text("Call History", color = Color.White) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Background)) },
         containerColor = Background
     ) { padding ->
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (history.isEmpty()) {
+            if (groupedHistory.isEmpty()) {
                 item { Text("No calls yet.", color = OnSurfaceVariant, modifier = Modifier.padding(24.dp)) }
             }
-            items(history) { record ->
+            items(groupedHistory) { record ->
                 val isBlocked = blockedIds.contains(record.callerId)
                 
                 ListItem(
-                    headlineContent = { Text(record.licensePlate, color = Color.White, fontWeight = FontWeight.Bold) },
-                    supportingContent = { Text(record.createdAt ?: "Unknown time", color = OnSurfaceVariant) },
+                    headlineContent = { 
+                        Text(
+                            text = if (record.callCount > 1) "${record.licensePlate} (${record.callCount})" else record.licensePlate, 
+                            color = Color.White, 
+                            fontWeight = FontWeight.Bold
+                        ) 
+                    },
+                    supportingContent = { Text(record.lastCallTime ?: "Unknown time", color = OnSurfaceVariant) },
                     colors = ListItemDefaults.colors(containerColor = SurfaceLow),
                     trailingContent = {
-                        Row {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            
+                            // 🚨 NEW: The Call Button
+                            if (callingPlate == record.licensePlate) {
+                                CircularProgressIndicator(
+                                    color = PrimaryApp,
+                                    modifier = Modifier.size(24.dp).padding(end = 8.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                IconButton(
+                                    onClick = {
+                                        callingPlate = record.licensePlate
+                                        AppLogger.logEvent("call_attempted_from_history")
+                                        scope.launch {
+                                            try {
+                                                val response = ApiService.api.initiateCall("Bearer $jwtToken", CallInitiateRequest(record.licensePlate))
+                                                if (response.isSuccessful && !response.body()?.targetUserId.isNullOrEmpty()) {
+                                                    AppLogger.logEvent("call_connected")
+                                                    SignalingClient.getInstance(context).initiateCall(response.body()!!.targetUserId!!)
+                                                } else {
+                                                    val errorMsg = ApiService.extractErrorMessage(response.errorBody())
+                                                    AppLogger.logEvent("call_failed", mapOf("reason" to errorMsg))
+                                                    Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                                }
+                                            } catch (e: Exception) {
+                                                AppLogger.recordError(e, "Call init failed from history")
+                                                Toast.makeText(context, "Network error", Toast.LENGTH_SHORT).show()
+                                            } finally {
+                                                callingPlate = null
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Filled.Call, contentDescription = "Call", tint = PrimaryApp)
+                                }
+                            }
+
                             TextButton(onClick = {
                                 scope.launch {
                                     val id = record.callerId ?: return@launch
