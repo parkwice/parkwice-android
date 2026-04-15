@@ -23,6 +23,9 @@ class SignalingClient(private val context: Context) {
 
     val isCallActive = MutableStateFlow(false)
     val rtcState = MutableStateFlow("Connecting...")
+    
+    // 🚨 NEW: Holds the license plate so the ActiveCallScreen can display it
+    val currentVehiclePlate = MutableStateFlow("")
 
     private var targetUserId: String? = null
     private var socket: Socket? = null
@@ -32,7 +35,6 @@ class SignalingClient(private val context: Context) {
 
     private var pendingAcceptCallerId: String? = null
     
-    // 🚨 NEW: For Delivery ACK
     private var pendingDeliveryAckCallerId: String? = null
     private var offlineTimeoutRunnable: Runnable? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -64,7 +66,6 @@ class SignalingClient(private val context: Context) {
             if (myId.isNotEmpty()) {
                 socket?.emit("register", myId)
                 
-                // 🚨 NEW: If we woke up from a push, tell the server we got it!
                 pendingDeliveryAckCallerId?.let { callerId ->
                     socket?.emit("call-delivered", JSONObject().put("callerId", callerId))
                     pendingDeliveryAckCallerId = null
@@ -83,10 +84,9 @@ class SignalingClient(private val context: Context) {
             }
         }
 
-        // 🚨 NEW: Caller receives confirmation that receiver's phone is actually ringing
         socket?.on("call-ringing") {
             mainHandler.post {
-                offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) } // They are online! Stop the drop timer.
+                offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) } 
                 rtcState.value = "Ringing..."
             }
         }
@@ -96,7 +96,7 @@ class SignalingClient(private val context: Context) {
             val responderId = data.getString("responderId")
             mainHandler.post {
                 offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-                rtcState.value = "Connecting..." // Changed to match iOS
+                rtcState.value = "Connecting..." 
             }
             startWebRTCCall(responderId)
         }
@@ -137,7 +137,6 @@ class SignalingClient(private val context: Context) {
         socket?.on("call-ended") { cleanup() }
     }
     
-    // 🚨 NEW: Called by FCM Service when a Push wakes the app up
     fun notifyCallDelivered(callerId: String) {
         if (socket?.connected() == true) {
             socket?.emit("call-delivered", JSONObject().put("callerId", callerId))
@@ -156,7 +155,6 @@ class SignalingClient(private val context: Context) {
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         audioManager.isSpeakerphoneOn = false
 
-        // 🚨 NEW: 15 Second Offline Timeout
         offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         offlineTimeoutRunnable = Runnable {
             if (rtcState.value == "Calling...") {
@@ -369,6 +367,7 @@ class SignalingClient(private val context: Context) {
         
         isCallActive.value = false
         targetUserId = null
+        currentVehiclePlate.value = "" // 🚨 NEW: Clear the plate when the call ends
         hasRemoteDescription = false
         remoteCandidatesQueue.clear()
     }

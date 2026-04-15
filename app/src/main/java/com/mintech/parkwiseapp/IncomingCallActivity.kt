@@ -82,7 +82,10 @@ class IncomingCallActivity : ComponentActivity() {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
             notificationManager.cancel(callerId.hashCode())
 
-            SignalingClient.getInstance(applicationContext).acceptCallBackground(callerId)
+            val client = SignalingClient.getInstance(applicationContext)
+            client.currentVehiclePlate.value = licensePlate // 🚨 NEW: Set plate for receiver
+            client.acceptCallBackground(callerId)
+            
             val mainIntent = Intent(this@IncomingCallActivity, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             }
@@ -99,7 +102,10 @@ class IncomingCallActivity : ComponentActivity() {
                     val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
                     notificationManager.cancel(callerId.hashCode())
 
-                    SignalingClient.getInstance(applicationContext).acceptCallBackground(callerId)
+                    val client = SignalingClient.getInstance(applicationContext)
+                    client.currentVehiclePlate.value = licensePlate // 🚨 NEW: Set plate for receiver
+                    client.acceptCallBackground(callerId)
+                    
                     val mainIntent = Intent(this@IncomingCallActivity, MainActivity::class.java).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                     }

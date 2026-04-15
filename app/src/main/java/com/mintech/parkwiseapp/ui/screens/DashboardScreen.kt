@@ -196,7 +196,9 @@ fun DashboardScreen(navController: NavController) {
                                         
                                         if (response.isSuccessful && !response.body()?.targetUserId.isNullOrEmpty()) {
                                             AppLogger.logEvent("call_connected")
-                                            SignalingClient.getInstance(context).initiateCall(response.body()!!.targetUserId!!)
+                                            val client = SignalingClient.getInstance(context)
+                                            client.currentVehiclePlate.value = searchPlate.trim()
+                                            client.initiateCall(response.body()!!.targetUserId!!)
                                         } else {
                                             val errorMsg = ApiService.extractErrorMessage(response.errorBody())
                                             AppLogger.logEvent("call_failed", mapOf("reason" to errorMsg))

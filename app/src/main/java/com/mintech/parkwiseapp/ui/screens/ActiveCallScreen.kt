@@ -31,13 +31,13 @@ fun ActiveCallScreen(onEndCall: () -> Unit) {
     val signalingClient = remember { SignalingClient.getInstance(context) }
     
     val rtcState by signalingClient.rtcState.collectAsState()
+    val currentPlate by signalingClient.currentVehiclePlate.collectAsState() // 🚨 NEW: Observe the plate
 
     var isMuted by remember { mutableStateOf(false) }
     var isSpeaker by remember { mutableStateOf(false) }
     
     var callDurationSeconds by remember { mutableIntStateOf(0) }
 
-    // 🚨 Keep screen awake while this Composable is in the UI tree
     val activity = context as? Activity
     DisposableEffect(Unit) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -72,12 +72,19 @@ fun ActiveCallScreen(onEndCall: () -> Unit) {
         ) {
             Spacer(modifier = Modifier.height(64.dp))
             Text("SECURE CONNECTION", color = PrimaryApp, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            
+            // 🚨 NEW: Display the License Plate
+            if (currentPlate.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(currentPlate, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(
                 text = if (rtcState == "Connected") formattedTime else rtcState, 
                 color = Color.White, 
-                fontSize = if (rtcState == "Connected") 48.sp else 28.sp, 
+                fontSize = if (rtcState == "Connected") 48.sp else 24.sp, 
                 fontWeight = FontWeight.Bold
             )
 
