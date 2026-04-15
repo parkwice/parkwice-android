@@ -26,6 +26,12 @@ import com.mintech.parkwiseapp.ui.theme.*
 import kotlinx.coroutines.launch
 import com.mintech.parkwiseapp.services.AppLogger
 
+// 🚨 NEW: Global Regex Validator for Indian Number Plates
+fun isValidIndianPlate(plate: String): Boolean {
+    val cleanPlate = plate.replace(" ", "").replace("-", "").uppercase()
+    return cleanPlate.matches("^[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{4}$".toRegex())
+}
+
 @Composable
 fun VehicleSetupScreen(onBack: () -> Unit, onSaved: () -> Unit) {
     var plate by remember { mutableStateOf("") }
@@ -33,6 +39,9 @@ fun VehicleSetupScreen(onBack: () -> Unit, onSaved: () -> Unit) {
     
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // 🚨 NEW: Validation State
+    val isPlateValid = plate.isEmpty() || isValidIndianPlate(plate)
 
     LaunchedEffect(Unit) {
         AppLogger.logEvent("screen_view", mapOf("screen_name" to "VehicleSetupScreen"))
@@ -74,17 +83,28 @@ fun VehicleSetupScreen(onBack: () -> Unit, onSaved: () -> Unit) {
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
-                        modifier = Modifier.fillMaxWidth().background(SurfaceHigh, RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceHigh, RoundedCornerShape(12.dp))
+                            // 🚨 Red border if invalid
+                            .border(1.dp, if (!isPlateValid) ErrorApp else Color.Transparent, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TextField(
                             value = plate,
                             onValueChange = { plate = it.uppercase() },
-                            placeholder = { Text("e.g. UK22M1234", color = OnSurfaceVariant.copy(alpha = 0.5f)) },
+                            placeholder = { Text("e.g. MH01AB1234", color = OnSurfaceVariant.copy(alpha = 0.5f)) },
                             colors = TextFieldDefaults.textFieldColors(backgroundColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, textColor = Color.White),
                             modifier = Modifier.weight(1f)
                         )
-                        Icon(Icons.Filled.CreditCard, contentDescription = null, tint = PrimaryApp)
+                        Icon(Icons.Filled.CreditCard, contentDescription = null, tint = if (!isPlateValid) ErrorApp else PrimaryApp)
+                    }
+
+                    // 🚨 NEW: Error Warning Text
+                    if (!isPlateValid) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Invalid format. Use standard plate format (e.g., MH01AB1234)", color = ErrorApp, fontSize = 12.sp)
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -97,8 +117,11 @@ fun VehicleSetupScreen(onBack: () -> Unit, onSaved: () -> Unit) {
                                 try {
                                     val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
                                     val token = prefs.getString("jwt_token", "") ?: ""
+                                    
+                                    // Strip spaces and hyphens before sending to API
+                                    val formattedPlate = plate.replace(" ", "").replace("-", "").uppercase()
 
-                                    val response = ApiService.api.addVehicle("Bearer $token", VehicleRequest(plate.trim()))
+                                    val response = ApiService.api.addVehicle("Bearer $token", VehicleRequest(formattedPlate))
                                     
                                     if (response.isSuccessful) {
                                         AppLogger.logEvent("add_vehicle_success")
@@ -120,7 +143,8 @@ fun VehicleSetupScreen(onBack: () -> Unit, onSaved: () -> Unit) {
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(backgroundColor = PrimaryApp, disabledBackgroundColor = PrimaryApp.copy(alpha = 0.5f)),
-                        enabled = !isSaving && plate.isNotEmpty()
+                        // 🚨 NEW: Button is disabled if Regex fails
+                        enabled = !isSaving && isValidIndianPlate(plate)
                     ) {
                         if (isSaving) {
                             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
