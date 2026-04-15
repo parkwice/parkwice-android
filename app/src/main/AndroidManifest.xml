@@ -34,9 +34,10 @@
         <activity
             android:name=".IncomingCallActivity"
             android:exported="true"
-            android:launchMode="singleTop"
-            android:showOnLockScreen="true"
             android:turnScreenOn="true"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:showOnLockScreen="true"
             android:theme="@android:style/Theme.Material.Light.NoActionBar"/>
 
         <service

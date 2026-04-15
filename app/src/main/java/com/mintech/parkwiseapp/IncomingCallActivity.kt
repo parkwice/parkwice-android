@@ -22,9 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -36,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.mintech.parkwiseapp.services.AppLogger
 import com.mintech.parkwiseapp.services.SignalingClient
+import com.mintech.parkwiseapp.ui.screens.ActiveCallScreen
 import com.mintech.parkwiseapp.ui.theme.*
 
 class IncomingCallActivity : ComponentActivity() {
@@ -55,11 +55,10 @@ class IncomingCallActivity : ComponentActivity() {
         window.statusBarColor = android.graphics.Color.parseColor("#1A232A")
         window.navigationBarColor = android.graphics.Color.parseColor("#1A232A")
 
+        // 🚨 FIX: We remove requestDismissKeyguard so the lock screen stays securely underneath us
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
-            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            keyguardManager.requestDismissKeyguard(this, null)
         } else {
             window.addFlags(
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
@@ -77,51 +76,61 @@ class IncomingCallActivity : ComponentActivity() {
         
         val autoAccept = intent.getBooleanExtra("AUTO_ACCEPT", false)
 
-        if (autoAccept) {
-            AppLogger.logEvent("incoming_call_auto_accepted")
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-            notificationManager.cancel(callerId.hashCode())
-
-            val client = SignalingClient.getInstance(applicationContext)
-            client.currentVehiclePlate.value = licensePlate // 🚨 NEW: Set plate for receiver
-            client.acceptCallBackground(callerId)
-            
-            val mainIntent = Intent(this@IncomingCallActivity, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            }
-            startActivity(mainIntent)
-            finish() 
-            return 
-        }
-
         setContent {
-            IncomingCallScreen(
-                licensePlate = licensePlate,
-                onAccept = {
-                    AppLogger.logEvent("incoming_call_accepted")
+            val client = SignalingClient.getInstance(applicationContext)
+            
+            // 🚨 FIX: rememberSaveable survives unlocks and screen rotations. 
+            // We also check if the client is ALREADY active just in case!
+            var callState by rememberSaveable { 
+                mutableStateOf(if (autoAccept || client.isCallActive.value) "ACTIVE" else "INCOMING") 
+            }
+
+            // Handle the case where they clicked "Accept" straight from the heads-up notification
+            LaunchedEffect(Unit) {
+                if (autoAccept && !client.isCallActive.value) {
+                    AppLogger.logEvent("incoming_call_auto_accepted")
                     val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
                     notificationManager.cancel(callerId.hashCode())
 
-                    val client = SignalingClient.getInstance(applicationContext)
-                    client.currentVehiclePlate.value = licensePlate // 🚨 NEW: Set plate for receiver
+                    client.currentVehiclePlate.value = licensePlate 
                     client.acceptCallBackground(callerId)
-                    
-                    val mainIntent = Intent(this@IncomingCallActivity, MainActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                    }
-                    startActivity(mainIntent)
-                    finish()
-                },
-                onDecline = {
-                    AppLogger.logEvent("incoming_call_declined")
-                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-                    notificationManager.cancel(callerId.hashCode())
-
-                    SignalingClient.getInstance(applicationContext).endCall(callerId) {
-                        finish()
-                    }
                 }
-            )
+            }
+
+            if (callState == "ACTIVE") {
+                // Show the Active Call UI directly over the lock screen!
+                ActiveCallScreen(
+                    onEndCall = {
+                        client.endCall(callerId) {
+                            finish() // Drops them back to the lock screen when they hang up
+                        }
+                    }
+                )
+            } else {
+                IncomingCallScreen(
+                    licensePlate = licensePlate,
+                    onAccept = {
+                        AppLogger.logEvent("incoming_call_accepted")
+                        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                        notificationManager.cancel(callerId.hashCode())
+
+                        client.currentVehiclePlate.value = licensePlate 
+                        client.acceptCallBackground(callerId)
+                        
+                        // Switch the UI to the active call screen
+                        callState = "ACTIVE"
+                    },
+                    onDecline = {
+                        AppLogger.logEvent("incoming_call_declined")
+                        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                        notificationManager.cancel(callerId.hashCode())
+
+                        client.endCall(callerId) {
+                            finish()
+                        }
+                    }
+                )
+            }
         }
     }
 
