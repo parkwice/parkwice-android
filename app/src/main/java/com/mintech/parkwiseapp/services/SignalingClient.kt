@@ -2,8 +2,11 @@ package com.mintech.parkwiseapp.services
 
 import android.content.Context
 import android.media.AudioManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import com.mintech.parkwiseapp.core.ApiConstants
 import io.socket.client.IO
 import io.socket.client.Socket
@@ -24,7 +27,6 @@ class SignalingClient(private val context: Context) {
     val isCallActive = MutableStateFlow(false)
     val rtcState = MutableStateFlow("Connecting...")
     
-    // 🚨 NEW: Holds the license plate so the ActiveCallScreen can display it
     val currentVehiclePlate = MutableStateFlow("")
 
     private var targetUserId: String? = null
@@ -97,6 +99,9 @@ class SignalingClient(private val context: Context) {
             mainHandler.post {
                 offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
                 rtcState.value = "Connecting..." 
+                
+                // 🚨 NEW: Trigger native Android Haptic Feedback when they accept!
+                triggerHapticFeedback()
             }
             startWebRTCCall(responderId)
         }
@@ -135,6 +140,23 @@ class SignalingClient(private val context: Context) {
         }
 
         socket?.on("call-ended") { cleanup() }
+    }
+    
+    // 🚨 NEW: Helper function to handle safe haptic feedback across all Android versions
+    private fun triggerHapticFeedback() {
+        try {
+            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            if (vibrator.hasVibrator()) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(100)
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.recordError(e, "Haptic feedback failed (Missing Permission?)")
+        }
     }
     
     fun notifyCallDelivered(callerId: String) {
@@ -367,7 +389,7 @@ class SignalingClient(private val context: Context) {
         
         isCallActive.value = false
         targetUserId = null
-        currentVehiclePlate.value = "" // 🚨 NEW: Clear the plate when the call ends
+        currentVehiclePlate.value = ""
         hasRemoteDescription = false
         remoteCandidatesQueue.clear()
     }
