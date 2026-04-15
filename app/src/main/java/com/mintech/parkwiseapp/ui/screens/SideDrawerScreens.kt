@@ -141,12 +141,10 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                             isLoggingOut = true
                             scope.launch {
                                 try {
-                                    // 🚨 NEW: Hit the backend to clear FCM/VoIP tokens first!
                                     ApiService.api.logout("Bearer $jwtToken")
                                 } catch (e: Exception) {
                                     AppLogger.recordError(e, "Logout API failed to clear tokens")
                                 } finally {
-                                    // Always clear local session even if the network fails
                                     AppLogger.logEvent("logout_success")
                                     AppLogger.clearUser()
                                     prefs.edit().clear().apply()
@@ -218,7 +216,7 @@ fun groupHistory(history: List<CallRecord>): List<GroupedCallRecord> {
         } else {
             grouped.add(
                 GroupedCallRecord(
-                    licensePlate = currentGroup.first().licensePlate,
+                    licensePlate = currentGroup.first().licensePlate ?: "Unknown Vehicle",
                     callerId = currentGroup.first().callerId,
                     receiverId = currentGroup.first().receiverId,
                     lastCallTime = currentGroup.first().createdAt,
@@ -231,7 +229,7 @@ fun groupHistory(history: List<CallRecord>): List<GroupedCallRecord> {
     if (currentGroup.isNotEmpty()) {
         grouped.add(
             GroupedCallRecord(
-                licensePlate = currentGroup.first().licensePlate,
+                licensePlate = currentGroup.first().licensePlate ?: "Unknown Vehicle",
                 callerId = currentGroup.first().callerId,
                 receiverId = currentGroup.first().receiverId,
                 lastCallTime = currentGroup.first().createdAt,
@@ -261,10 +259,29 @@ fun CallHistoryScreen(onBack: () -> Unit) {
 
     LaunchedEffect(Unit) {
         AppLogger.logEvent("screen_view", mapOf("screen_name" to "CallHistoryScreen"))
-        val historyRes = ApiService.api.getCallHistory("Bearer $jwtToken")
-        val blockedRes = ApiService.api.getBlockedUsers("Bearer $jwtToken")
-        if (historyRes.isSuccessful) history = historyRes.body() ?: emptyList()
-        if (blockedRes.isSuccessful) blockedIds = blockedRes.body()?.toSet() ?: emptySet()
+        
+        // 🚨 FIX: Wrap in safe try-catch blocks to prevent silent parsing crashes.
+        // We also show a Toast if the endpoint returns a 404 or fails to load.
+        try {
+            val historyRes = ApiService.api.getCallHistory("Bearer $jwtToken")
+            if (historyRes.isSuccessful) {
+                history = historyRes.body() ?: emptyList()
+            } else {
+                AppLogger.logEvent("history_fetch_failed", mapOf("code" to historyRes.code().toString()))
+                Toast.makeText(context, "Could not load history. (Error ${historyRes.code()})", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            AppLogger.recordError(e, "History fetch failed")
+        }
+
+        try {
+            val blockedRes = ApiService.api.getBlockedUsers("Bearer $jwtToken")
+            if (blockedRes.isSuccessful) {
+                blockedIds = blockedRes.body()?.toSet() ?: emptySet()
+            }
+        } catch (e: Exception) {
+            AppLogger.recordError(e, "Blocked fetch failed")
+        }
     }
 
     val groupedHistory = remember(history) { groupHistory(history) }

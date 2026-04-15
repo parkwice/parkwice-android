@@ -8,7 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
-import com.mintech.parkwiseapp.R // 🚨 NEW: Needed to access R.raw.ringback
+import com.mintech.parkwiseapp.R
 import com.mintech.parkwiseapp.core.ApiConstants
 import io.socket.client.IO
 import io.socket.client.Socket
@@ -48,7 +48,6 @@ class SignalingClient(private val context: Context) {
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     
-    // 🚨 NEW: MediaPlayer for the ringing sound
     private var ringbackPlayer: MediaPlayer? = null
 
     init {
@@ -95,8 +94,15 @@ class SignalingClient(private val context: Context) {
             mainHandler.post {
                 offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) } 
                 rtcState.value = "Ringing..."
-                
-                // 🚨 NEW: Start playing the ringback tone!
+                startRingbackTone()
+            }
+        }
+
+        // 🚨 NEW: iOS emits "call-delivered" when a push arrives. We MUST listen for this!
+        socket?.on("call-delivered") {
+            mainHandler.post {
+                offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) } 
+                rtcState.value = "Ringing..."
                 startRingbackTone()
             }
         }
@@ -108,10 +114,7 @@ class SignalingClient(private val context: Context) {
                 offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
                 rtcState.value = "Connecting..." 
                 
-                // 🚨 NEW: Stop the ringing sound once they answer
                 stopRingbackTone()
-                
-                // Trigger native Android Haptic Feedback when they accept
                 triggerHapticFeedback()
             }
             startWebRTCCall(responderId)
@@ -153,11 +156,9 @@ class SignalingClient(private val context: Context) {
         socket?.on("call-ended") { cleanup() }
     }
     
-    // MARK: - 🚨 NEW: Audio Player Functions
     private fun startRingbackTone() {
         try {
             if (ringbackPlayer == null) {
-                // Creates the player using your res/raw/ringback file
                 ringbackPlayer = MediaPlayer.create(context, R.raw.ringback)
                 ringbackPlayer?.isLooping = true
             }
@@ -219,7 +220,7 @@ class SignalingClient(private val context: Context) {
         offlineTimeoutRunnable = Runnable {
             if (rtcState.value == "Calling...") {
                 rtcState.value = "User Unreachable"
-                stopRingbackTone() // 🚨 Safety stop
+                stopRingbackTone()
                 mainHandler.postDelayed({
                     endCall()
                 }, 2000)
@@ -373,7 +374,7 @@ class SignalingClient(private val context: Context) {
     fun endCall(callerId: String? = null, onCallEnded: (() -> Unit)? = null) {
         AppLogger.logEvent("webrtc_end_call_emitted")
         offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-        stopRingbackTone() // 🚨 Ensure ringing stops if caller hangs up early
+        stopRingbackTone() 
         
         if (this.targetUserId == null && callerId != null) {
             this.targetUserId = callerId
@@ -422,7 +423,7 @@ class SignalingClient(private val context: Context) {
 
     fun cleanup() {
         offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-        stopRingbackTone() // 🚨 Final cleanup safety
+        stopRingbackTone() 
         
         peerConnection?.close()
         peerConnection = null
