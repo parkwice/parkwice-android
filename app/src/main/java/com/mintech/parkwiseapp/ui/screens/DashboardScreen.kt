@@ -90,6 +90,34 @@ fun DashboardScreen(navController: NavController) {
 
     LaunchedEffect(Unit) { loadVehicles() }
 
+    // 🚨 NEW: Extract the call logic so we can delay it if permissions are missing
+    val performCall = {
+        isCalling = true
+        AppLogger.logEvent("call_attempted")
+        coroutineScope.launch {
+            try {
+                val formattedSearch = searchPlate.replace(" ", "").replace("-", "").uppercase()
+                val response = ApiService.api.initiateCall("Bearer $jwtToken", CallInitiateRequest(formattedSearch))
+                
+                if (response.isSuccessful && !response.body()?.targetUserId.isNullOrEmpty()) {
+                    AppLogger.logEvent("call_connected")
+                    val client = SignalingClient.getInstance(context)
+                    client.currentVehiclePlate.value = formattedSearch
+                    client.initiateCall(response.body()!!.targetUserId!!)
+                } else {
+                    val errorMsg = ApiService.extractErrorMessage(response.errorBody())
+                    AppLogger.logEvent("call_failed", mapOf("reason" to errorMsg))
+                    Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                AppLogger.recordError(e, "Call init failed")
+                Toast.makeText(context, "Network error", Toast.LENGTH_SHORT).show()
+            } finally {
+                isCalling = false
+            }
+        }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -122,7 +150,6 @@ fun DashboardScreen(navController: NavController) {
         }
 
         Column(modifier = Modifier.fillMaxSize().background(Background)) {
-            // --- HEADER (Sticky at Top) ---
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -142,7 +169,6 @@ fun DashboardScreen(navController: NavController) {
                 }
             }
 
-            // --- FULL SCREEN SCROLLABLE GRID ---
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
@@ -150,7 +176,6 @@ fun DashboardScreen(navController: NavController) {
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Header Texts
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Column {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -161,7 +186,6 @@ fun DashboardScreen(navController: NavController) {
                     }
                 }
 
-                // Plate Input Block
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(
                         modifier = Modifier.fillMaxWidth().background(SurfaceLow, RoundedCornerShape(32.dp))
@@ -171,7 +195,10 @@ fun DashboardScreen(navController: NavController) {
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Row(
-                            modifier = Modifier.fillMaxWidth().background(SurfaceLowest, RoundedCornerShape(16.dp)).padding(horizontal = 16.dp, vertical = 4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(SurfaceLowest, RoundedCornerShape(16.dp))
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             TextField(
@@ -188,28 +215,12 @@ fun DashboardScreen(navController: NavController) {
 
                         Button(
                             onClick = {
-                                isCalling = true
-                                AppLogger.logEvent("call_attempted")
-                                coroutineScope.launch {
-                                    try {
-                                        val response = ApiService.api.initiateCall("Bearer $jwtToken", CallInitiateRequest(searchPlate.trim()))
-                                        
-                                        if (response.isSuccessful && !response.body()?.targetUserId.isNullOrEmpty()) {
-                                            AppLogger.logEvent("call_connected")
-                                            val client = SignalingClient.getInstance(context)
-                                            client.currentVehiclePlate.value = searchPlate.trim()
-                                            client.initiateCall(response.body()!!.targetUserId!!)
-                                        } else {
-                                            val errorMsg = ApiService.extractErrorMessage(response.errorBody())
-                                            AppLogger.logEvent("call_failed", mapOf("reason" to errorMsg))
-                                            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
-                                        }
-                                    } catch (e: Exception) {
-                                        AppLogger.recordError(e, "Call init failed")
-                                        Toast.makeText(context, "Network error", Toast.LENGTH_SHORT).show()
-                                    } finally {
-                                        isCalling = false
-                                    }
+                                // 🚨 NEW: Check permissions before launching the call
+                                if (!arePermissionsGranted(context)) {
+                                    showPermissionFlow = true
+                                    pendingAction = { performCall() }
+                                } else {
+                                    performCall()
                                 }
                             },
                             modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -223,7 +234,6 @@ fun DashboardScreen(navController: NavController) {
                     }
                 }
 
-                // Active Vehicles Title Row
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Column {
                         Spacer(modifier = Modifier.height(24.dp))
@@ -250,7 +260,6 @@ fun DashboardScreen(navController: NavController) {
                     }
                 }
 
-                // The Vehicles or Empty State
                 if (vehicles.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text("No vehicles registered yet.", color = OnSurfaceVariant, modifier = Modifier.padding(vertical = 16.dp))

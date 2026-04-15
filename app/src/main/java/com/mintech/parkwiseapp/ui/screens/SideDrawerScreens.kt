@@ -169,7 +169,6 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     }
 }
 
-// 🚨 NEW: Data class and algorithm to group consecutive calls
 data class GroupedCallRecord(
     val licensePlate: String,
     val callerId: String?,
@@ -185,7 +184,6 @@ fun groupHistory(history: List<CallRecord>): List<GroupedCallRecord> {
 
     for (i in 1 until history.size) {
         val record = history[i]
-        // Group consecutive records with the same license plate
         if (record.licensePlate == currentGroup.first().licensePlate) {
             currentGroup.add(record)
         } else {
@@ -225,8 +223,11 @@ fun CallHistoryScreen(onBack: () -> Unit) {
     var blockedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedUserIdForReport by remember { mutableStateOf<String?>(null) }
     
-    // 🚨 NEW: Track loading state for inline calling
     var callingPlate by remember { mutableStateOf<String?>(null) }
+    
+    // 🚨 NEW: Permission state for history screen calls
+    var showPermissionFlow by remember { mutableStateOf(false) }
+    var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     
     val scope = rememberCoroutineScope()
 
@@ -244,6 +245,22 @@ fun CallHistoryScreen(onBack: () -> Unit) {
         topBar = { TopAppBar(title = { Text("Call History", color = Color.White) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Background)) },
         containerColor = Background
     ) { padding ->
+        
+        // 🚨 NEW: Show permission popup if triggered
+        if (showPermissionFlow) {
+            FriendlyPermissionFlow(
+                onPermissionsGranted = {
+                    showPermissionFlow = false
+                    pendingAction?.invoke()
+                    pendingAction = null
+                },
+                onCancel = {
+                    showPermissionFlow = false
+                    pendingAction = null
+                }
+            )
+        }
+        
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (groupedHistory.isEmpty()) {
                 item { Text("No calls yet.", color = OnSurfaceVariant, modifier = Modifier.padding(24.dp)) }
@@ -264,7 +281,6 @@ fun CallHistoryScreen(onBack: () -> Unit) {
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             
-                            // 🚨 NEW: The Call Button
                             if (callingPlate == record.licensePlate) {
                                 CircularProgressIndicator(
                                     color = PrimaryApp,
@@ -274,27 +290,38 @@ fun CallHistoryScreen(onBack: () -> Unit) {
                             } else {
                                 IconButton(
                                     onClick = {
-                                        callingPlate = record.licensePlate
-                                        AppLogger.logEvent("call_attempted_from_history")
-                                        scope.launch {
-                                            try {
-                                                val response = ApiService.api.initiateCall("Bearer $jwtToken", CallInitiateRequest(record.licensePlate))
-                                                if (response.isSuccessful && !response.body()?.targetUserId.isNullOrEmpty()) {
-                                                    AppLogger.logEvent("call_connected")
-                                                    val client = SignalingClient.getInstance(context)
-                                                    client.currentVehiclePlate.value = record.licensePlate
-                                                    client.initiateCall(response.body()!!.targetUserId!!)
-                                                } else {
-                                                    val errorMsg = ApiService.extractErrorMessage(response.errorBody())
-                                                    AppLogger.logEvent("call_failed", mapOf("reason" to errorMsg))
-                                                    Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                        // 🚨 NEW: Extract history call logic so we can delay it for permissions
+                                        val performCallFromHistory = {
+                                            callingPlate = record.licensePlate
+                                            AppLogger.logEvent("call_attempted_from_history")
+                                            scope.launch {
+                                                try {
+                                                    val response = ApiService.api.initiateCall("Bearer $jwtToken", CallInitiateRequest(record.licensePlate))
+                                                    if (response.isSuccessful && !response.body()?.targetUserId.isNullOrEmpty()) {
+                                                        AppLogger.logEvent("call_connected")
+                                                        val client = SignalingClient.getInstance(context)
+                                                        client.currentVehiclePlate.value = record.licensePlate
+                                                        client.initiateCall(response.body()!!.targetUserId!!)
+                                                    } else {
+                                                        val errorMsg = ApiService.extractErrorMessage(response.errorBody())
+                                                        AppLogger.logEvent("call_failed", mapOf("reason" to errorMsg))
+                                                        Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                                    }
+                                                } catch (e: Exception) {
+                                                    AppLogger.recordError(e, "Call init failed from history")
+                                                    Toast.makeText(context, "Network error", Toast.LENGTH_SHORT).show()
+                                                } finally {
+                                                    callingPlate = null
                                                 }
-                                            } catch (e: Exception) {
-                                                AppLogger.recordError(e, "Call init failed from history")
-                                                Toast.makeText(context, "Network error", Toast.LENGTH_SHORT).show()
-                                            } finally {
-                                                callingPlate = null
                                             }
+                                        }
+
+                                        // 🚨 Check permissions before calling
+                                        if (!arePermissionsGranted(context)) {
+                                            showPermissionFlow = true
+                                            pendingAction = { performCallFromHistory() }
+                                        } else {
+                                            performCallFromHistory()
                                         }
                                     }
                                 ) {
