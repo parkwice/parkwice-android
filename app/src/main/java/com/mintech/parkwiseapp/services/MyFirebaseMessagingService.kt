@@ -65,6 +65,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         AppLogger.logEvent("incoming_call_push_received")
         val licensePlate = data["licensePlate"] ?: data["handle"] ?: "Vehicle Alert"
 
+        // 🚨 NEW: Tell the server we got the push so the caller sees "Ringing..."
+        SignalingClient.getInstance(applicationContext).notifyCallDelivered(callerId)
+
         // 1. The default full-screen intent (when the phone is locked)
         val fullScreenIntent = Intent(this, IncomingCallActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -76,7 +79,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             this, 0, fullScreenIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 🚨 2. The explicit Accept Intent (bypasses the ringing screen and connects)
+        // 2. The explicit Accept Intent (bypasses the ringing screen and connects)
         val acceptIntent = Intent(this, IncomingCallActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra("CALLER_ID", callerId)
@@ -129,7 +132,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setDeleteIntent(dismissPendingIntent) // Triggers if swiped away
             .addAction(0, "Decline", dismissPendingIntent) // Explicit Decline
-            .addAction(0, "Accept", acceptPendingIntent) // 🚨 Explicit Accept
+            .addAction(0, "Accept", acceptPendingIntent) // Explicit Accept
             .setAutoCancel(true)
             .setOngoing(true)
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))

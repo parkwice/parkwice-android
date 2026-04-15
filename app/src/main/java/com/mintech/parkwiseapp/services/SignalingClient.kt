@@ -2,6 +2,8 @@ package com.mintech.parkwiseapp.services
 
 import android.content.Context
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import com.mintech.parkwiseapp.core.ApiConstants
 import io.socket.client.IO
 import io.socket.client.Socket
@@ -29,6 +31,11 @@ class SignalingClient(private val context: Context) {
     private var localAudioTrack: AudioTrack? = null
 
     private var pendingAcceptCallerId: String? = null
+    
+    // 🚨 NEW: For Delivery ACK
+    private var pendingDeliveryAckCallerId: String? = null
+    private var offlineTimeoutRunnable: Runnable? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val remoteCandidatesQueue = mutableListOf<IceCandidate>()
     private var hasRemoteDescription = false
@@ -57,8 +64,14 @@ class SignalingClient(private val context: Context) {
             if (myId.isNotEmpty()) {
                 socket?.emit("register", myId)
                 
+                // 🚨 NEW: If we woke up from a push, tell the server we got it!
+                pendingDeliveryAckCallerId?.let { callerId ->
+                    socket?.emit("call-delivered", JSONObject().put("callerId", callerId))
+                    pendingDeliveryAckCallerId = null
+                }
+                
                 pendingAcceptCallerId?.let { callerId ->
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    mainHandler.postDelayed({
                         val payload = JSONObject().apply {
                             put("targetUserId", callerId)
                             put("responderId", myId)
@@ -70,10 +83,21 @@ class SignalingClient(private val context: Context) {
             }
         }
 
+        // 🚨 NEW: Caller receives confirmation that receiver's phone is actually ringing
+        socket?.on("call-ringing") {
+            mainHandler.post {
+                offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) } // They are online! Stop the drop timer.
+                rtcState.value = "Ringing..."
+            }
+        }
+
         socket?.on("call-accepted") { args ->
             val data = args[0] as JSONObject
             val responderId = data.getString("responderId")
-            rtcState.value = "Receiver joined. Negotiating..."
+            mainHandler.post {
+                offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+                rtcState.value = "Connecting..." // Changed to match iOS
+            }
             startWebRTCCall(responderId)
         }
 
@@ -112,15 +136,37 @@ class SignalingClient(private val context: Context) {
 
         socket?.on("call-ended") { cleanup() }
     }
+    
+    // 🚨 NEW: Called by FCM Service when a Push wakes the app up
+    fun notifyCallDelivered(callerId: String) {
+        if (socket?.connected() == true) {
+            socket?.emit("call-delivered", JSONObject().put("callerId", callerId))
+        } else {
+            pendingDeliveryAckCallerId = callerId
+            socket?.connect()
+        }
+    }
 
     fun initiateCall(targetId: String) {
         AppLogger.logEvent("webrtc_initiate_call")
         this.targetUserId = targetId
         isCallActive.value = true
-        rtcState.value = "Ringing..."
+        rtcState.value = "Calling..."
         socket?.connect()
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         audioManager.isSpeakerphoneOn = false
+
+        // 🚨 NEW: 15 Second Offline Timeout
+        offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        offlineTimeoutRunnable = Runnable {
+            if (rtcState.value == "Calling...") {
+                rtcState.value = "User Unreachable"
+                mainHandler.postDelayed({
+                    endCall()
+                }, 2000)
+            }
+        }
+        mainHandler.postDelayed(offlineTimeoutRunnable!!, 15000)
     }
 
     fun acceptCallBackground(callerId: String) {
@@ -130,7 +176,7 @@ class SignalingClient(private val context: Context) {
         val myId = prefs.getString("user_id", "") ?: ""
 
         isCallActive.value = true
-        rtcState.value = "Connecting Securely..."
+        rtcState.value = "Connecting..."
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         audioManager.isSpeakerphoneOn = false
 
@@ -169,9 +215,10 @@ class SignalingClient(private val context: Context) {
                 }
                 
                 override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState?) {
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    mainHandler.post {
                         if (newState == PeerConnection.IceConnectionState.CONNECTED || newState == PeerConnection.IceConnectionState.COMPLETED) {
                             AppLogger.logEvent("webrtc_ice_connected")
+                            offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
                             rtcState.value = "Connected"
                         } else if (newState == PeerConnection.IceConnectionState.FAILED) {
                             AppLogger.logEvent("webrtc_ice_failed")
@@ -266,13 +313,13 @@ class SignalingClient(private val context: Context) {
 
     fun endCall(callerId: String? = null, onCallEnded: (() -> Unit)? = null) {
         AppLogger.logEvent("webrtc_end_call_emitted")
+        offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         
         if (this.targetUserId == null && callerId != null) {
             this.targetUserId = callerId
         }
         
         val target = targetUserId ?: callerId
-        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         
         if (target != null) {
             val payload = JSONObject().apply { put("targetUserId", target) }
@@ -299,7 +346,6 @@ class SignalingClient(private val context: Context) {
                     }
                 }
                 
-                // 🚨 INCREASED TIMEOUT: Gives the app 8 seconds to connect to the network from the background
                 mainHandler.postDelayed({
                     if (!handled) {
                         handled = true
@@ -315,6 +361,7 @@ class SignalingClient(private val context: Context) {
     }
 
     fun cleanup() {
+        offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         peerConnection?.close()
         peerConnection = null
         socket?.disconnect()
