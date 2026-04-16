@@ -3,6 +3,7 @@ package com.mintech.parkwiseapp.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -236,6 +237,7 @@ fun CallHistoryScreen(onBack: () -> Unit, onNavigateToDetail: (String, String) -
             try {
                 // 1. Fetch exactly what the backend grouped for us
                 val res = ApiService.api.getGroupedCalls("Bearer $jwtToken", currentPage, 15)
+                Log.d("DATA", res.body().toString());
                 if (res.isSuccessful) {
                     val newCalls = res.body() ?: emptyList()
                     if (newCalls.size < 15) hasMoreData = false

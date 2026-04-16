@@ -3,20 +3,20 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
     id("com.google.firebase.crashlytics")
+    alias(libs.plugins.kotlin.android)
 }
 
 android {
     namespace = "com.mintech.parkwiseapp"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+
+    // ✅ FIX: Use standard integer syntax for stable SDKs
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.mintech.parkwiseapp"
         minSdk = 24
-        targetSdk = 36
+        // ✅ FIX: Match the compileSdk
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -43,6 +43,9 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    kotlinOptions {
+        jvmTarget = "11"
     }
 }
 
