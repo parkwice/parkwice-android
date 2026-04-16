@@ -15,6 +15,7 @@ data class CallInitiateResponse(val targetUserId: String?, val error: String?)
 
 data class CallRecord(val _id: String, val licensePlate: String?, val callerId: String?, val receiverId: String?, val createdAt: String?)
 
+// 🚨 The exact GroupedCall model returned by the backend
 data class GroupedCall(val _id: String, val latestCall: CallRecord, val totalCalls: Int)
 
 data class TokenSyncRequest(val fcmToken: String, val voipToken: String = "")
@@ -44,6 +45,7 @@ interface ParkwiseApi {
     @POST("call/initiate")
     suspend fun initiateCall(@Header("Authorization") token: String, @Body req: CallInitiateRequest): Response<CallInitiateResponse>
 
+    // 🚨 1. Fetch grouped calls by otherUserId
     @GET("call/history/grouped")
     suspend fun getGroupedCalls(
         @Header("Authorization") token: String,
@@ -51,7 +53,7 @@ interface ParkwiseApi {
         @Query("limit") limit: Int = 15
     ): Response<List<GroupedCall>>
     
-    // 🚨 NEW: Fetch the deep dive of calls for the new CallDetailScreen
+    // 🚨 2. Fetch specific details for that otherUserId
     @GET("call/history/details/{otherUserId}")
     suspend fun getCallDetails(
         @Header("Authorization") token: String,
