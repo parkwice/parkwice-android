@@ -31,7 +31,7 @@ fun ActiveCallScreen(onEndCall: () -> Unit) {
     val signalingClient = remember { SignalingClient.getInstance(context) }
     
     val rtcState by signalingClient.rtcState.collectAsState()
-    val currentPlate by signalingClient.currentVehiclePlate.collectAsState() // 🚨 NEW: Observe the plate
+    val currentPlate by signalingClient.currentVehiclePlate.collectAsState() 
 
     var isMuted by remember { mutableStateOf(false) }
     var isSpeaker by remember { mutableStateOf(false) }
@@ -50,12 +50,18 @@ fun ActiveCallScreen(onEndCall: () -> Unit) {
         AppLogger.logEvent("screen_view", mapOf("screen_name" to "ActiveCallScreen"))
     }
 
+    // 🚨 FIX: Calculate exactly how long it has been since the connection timestamp.
+    // If the app backgrounds and restores, this immediately grabs the correct math.
     LaunchedEffect(rtcState) {
         if (rtcState == "Connected") {
             while (true) {
-                delay(1000)
-                callDurationSeconds++
+                if (signalingClient.callStartTime > 0L) {
+                    callDurationSeconds = ((System.currentTimeMillis() - signalingClient.callStartTime) / 1000).toInt()
+                }
+                delay(500) // Update UI
             }
+        } else {
+            callDurationSeconds = 0
         }
     }
 
@@ -73,7 +79,6 @@ fun ActiveCallScreen(onEndCall: () -> Unit) {
             Spacer(modifier = Modifier.height(64.dp))
             Text("SECURE CONNECTION", color = PrimaryApp, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             
-            // 🚨 NEW: Display the License Plate
             if (currentPlate.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(currentPlate, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)

@@ -1,6 +1,5 @@
 package com.mintech.parkwiseapp.ui.screens
 
-import androidx.core.content.ContextCompat
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -9,11 +8,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed // 🚨 Essential for pagination
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallMade
+import androidx.compose.material.icons.filled.CallReceived
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,12 +28,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mintech.parkwiseapp.services.ApiService
-import com.mintech.parkwiseapp.services.CallInitiateRequest
+import com.mintech.parkwiseapp.services.CallRecord
 import com.mintech.parkwiseapp.services.GroupedCall
-import com.mintech.parkwiseapp.services.SignalingClient
 import com.mintech.parkwiseapp.ui.theme.*
 import kotlinx.coroutines.launch
 import com.mintech.parkwiseapp.services.AppLogger
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 @Composable
 fun SideDrawerContent(
@@ -196,28 +201,33 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     }
 }
 
+// 🚨 Safe helper to format backend ISO strings to human-readable dates
+fun formatIsoDate(isoString: String?): String {
+    if (isoString.isNullOrEmpty()) return "Unknown Time"
+    return try {
+        val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault())
+        parser.timeZone = TimeZone.getTimeZone("UTC")
+        val date = parser.parse(isoString)
+        val formatter = SimpleDateFormat("MMM dd, yyyy - hh:mm a", Locale.getDefault())
+        date?.let { formatter.format(it) } ?: isoString
+    } catch (e: Exception) {
+        isoString
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CallHistoryScreen(onBack: () -> Unit) {
+fun CallHistoryScreen(onBack: () -> Unit, onNavigateToDetail: (String, String) -> Unit) {
     val context = LocalContext.current
     val jwtToken = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE).getString("jwt_token", "") ?: ""
     
-    // 🚨 NEW: Switched to API-powered GroupedCall pagination
     var groupedCalls by remember { mutableStateOf<List<GroupedCall>>(emptyList()) }
     var currentPage by remember { mutableStateOf(1) }
     var isLoading by remember { mutableStateOf(false) }
     var hasMoreData by remember { mutableStateOf(true) }
     
-    var blockedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var selectedUserIdForReport by remember { mutableStateOf<String?>(null) }
-    
-    var callingPlate by remember { mutableStateOf<String?>(null) }
-    var showPermissionFlow by remember { mutableStateOf(false) }
-    var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    
     val scope = rememberCoroutineScope()
 
-    // 🚨 NEW: Infinite Scroll Pagination Function
     fun loadMore() {
         if (isLoading || !hasMoreData) return
         isLoading = true
@@ -243,14 +253,6 @@ fun CallHistoryScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         AppLogger.logEvent("screen_view", mapOf("screen_name" to "CallHistoryScreen"))
         loadMore()
-        try {
-            val blockedRes = ApiService.api.getBlockedUsers("Bearer $jwtToken")
-            if (blockedRes.isSuccessful) {
-                blockedIds = blockedRes.body()?.toSet() ?: emptySet()
-            }
-        } catch (e: Exception) {
-            AppLogger.recordError(e, "Blocked fetch failed")
-        }
     }
 
     Scaffold(
@@ -258,126 +260,34 @@ fun CallHistoryScreen(onBack: () -> Unit) {
         containerColor = Background
     ) { padding ->
         
-        if (showPermissionFlow) {
-            FriendlyPermissionFlow(
-                onPermissionsGranted = {
-                    showPermissionFlow = false
-                    pendingAction?.invoke()
-                    pendingAction = null
-                },
-                onCancel = {
-                    showPermissionFlow = false
-                    pendingAction = null
-                }
-            )
-        }
-        
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (groupedCalls.isEmpty() && !isLoading) {
                 item { Text("No calls yet.", color = OnSurfaceVariant, modifier = Modifier.padding(24.dp)) }
             }
             
-            // 🚨 NEW: using itemsIndexed to trigger automatic data loading when scrolling to bottom
             itemsIndexed(groupedCalls) { index, group ->
                 if (index == groupedCalls.size - 1 && hasMoreData && !isLoading) {
                     LaunchedEffect(Unit) { loadMore() }
                 }
                 
                 val record = group.latestCall
-                val isBlocked = blockedIds.contains(group._id)
+                val displayPlate = record.licensePlate ?: "Unknown Vehicle"
                 
                 ListItem(
+                    modifier = Modifier.clickable { 
+                        onNavigateToDetail(group._id, displayPlate) 
+                    },
                     headlineContent = { 
                         Text(
-                            text = if (group.totalCalls > 1) "${record.licensePlate} (${group.totalCalls})" else record.licensePlate, 
+                            text = if (group.totalCalls > 1) "$displayPlate (${group.totalCalls})" else displayPlate, 
                             color = Color.White, 
                             fontWeight = FontWeight.Bold
                         ) 
                     },
-                    supportingContent = { Text(record.createdAt ?: "Unknown time", color = OnSurfaceVariant) },
+                    supportingContent = { Text("Tap for detailed history", color = OnSurfaceVariant) },
                     colors = ListItemDefaults.colors(containerColor = SurfaceLow),
                     trailingContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            
-                            if (callingPlate == record.licensePlate) {
-                                CircularProgressIndicator(
-                                    color = PrimaryApp,
-                                    modifier = Modifier.size(24.dp).padding(end = 8.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                IconButton(
-                                    onClick = {
-                                        val performCallFromHistory = {
-                                            callingPlate = record.licensePlate
-                                            AppLogger.logEvent("call_attempted_from_history")
-                                            
-                                            // 🚨 PRECONNECT SOCKET TO PREVENT RACE CONDITION
-                                            SignalingClient.getInstance(context).preconnectSocket()
-                                            
-                                            scope.launch {
-                                                try {
-                                                    val response = ApiService.api.initiateCall("Bearer $jwtToken", CallInitiateRequest(record.licensePlate))
-                                                    if (response.isSuccessful && !response.body()?.targetUserId.isNullOrEmpty()) {
-                                                        AppLogger.logEvent("call_connected")
-                                                        val client = SignalingClient.getInstance(context)
-                                                        client.currentVehiclePlate.value = record.licensePlate
-                                                        client.initiateCall(response.body()!!.targetUserId!!)
-                                                    } else {
-                                                        val errorMsg = ApiService.extractErrorMessage(response.errorBody())
-                                                        AppLogger.logEvent("call_failed", mapOf("reason" to errorMsg))
-                                                        Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
-                                                    }
-                                                } catch (e: Exception) {
-                                                    AppLogger.recordError(e, "Call init failed from history")
-                                                    Toast.makeText(context, "Network error", Toast.LENGTH_SHORT).show()
-                                                } finally {
-                                                    callingPlate = null
-                                                }
-                                            }
-                                        }
-
-                                        val audioGranted = ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                                        val pushGranted = if (android.os.Build.VERSION.SDK_INT >= 33) {
-                                            ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                                        } else true
-
-                                        if (!(audioGranted && pushGranted)) {
-                                            showPermissionFlow = true
-                                            pendingAction = { performCallFromHistory() }
-                                        } else {
-                                            performCallFromHistory()
-                                        }
-                                    }
-                                ) {
-                                    Icon(Icons.Filled.Call, contentDescription = "Call", tint = PrimaryApp)
-                                }
-                            }
-
-                            TextButton(onClick = {
-                                scope.launch {
-                                    val id = group._id
-                                    if (isBlocked) {
-                                        if (ApiService.api.unblockUser("Bearer $jwtToken", mapOf("targetId" to id)).isSuccessful) {
-                                            AppLogger.logEvent("user_unblocked")
-                                            blockedIds = blockedIds - id
-                                        }
-                                    } else {
-                                        if (ApiService.api.blockUser("Bearer $jwtToken", mapOf("targetId" to id)).isSuccessful) {
-                                            AppLogger.logEvent("user_blocked")
-                                            blockedIds = blockedIds + id
-                                        }
-                                    }
-                                }
-                            }) { Text(if (isBlocked) "Unblock" else "Block", color = if (isBlocked) Color.Green else ErrorApp, fontWeight = FontWeight.Bold) }
-                            
-                            TextButton(onClick = { 
-                                AppLogger.logEvent("report_user_clicked")
-                                selectedUserIdForReport = group._id 
-                            }) {
-                                Text("Report", color = Color(0xFFFFA500), fontWeight = FontWeight.Bold)
-                            }
-                        }
+                        Icon(Icons.Filled.ChevronRight, contentDescription = "Details", tint = OnSurfaceVariant.copy(alpha = 0.5f))
                     }
                 )
                 HorizontalDivider(color = Background)
@@ -391,12 +301,131 @@ fun CallHistoryScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
 
-        if (selectedUserIdForReport != null) {
+// 🚨 NEW: The iOS-style detail screen that opens when you tap a grouped item
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CallDetailScreen(otherUserId: String, licensePlate: String, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val jwtToken = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE).getString("jwt_token", "") ?: ""
+    val myUserId = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE).getString("user_id", "") ?: ""
+    
+    var detailedCalls by remember { mutableStateOf<List<CallRecord>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var isBlocked by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    var showReportDialog by remember { mutableStateOf(false) }
+    
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        AppLogger.logEvent("screen_view", mapOf("screen_name" to "CallDetailScreen"))
+        try {
+            val callsRes = ApiService.api.getCallDetails("Bearer $jwtToken", otherUserId)
+            if (callsRes.isSuccessful) detailedCalls = callsRes.body() ?: emptyList()
+            
+            val blockedRes = ApiService.api.getBlockedUsers("Bearer $jwtToken")
+            if (blockedRes.isSuccessful) {
+                isBlocked = blockedRes.body()?.contains(otherUserId) == true
+            }
+        } catch (e: Exception) {
+            AppLogger.recordError(e, "Call details fetch failed")
+        } finally {
+            isLoading = false
+        }
+    }
+
+    Scaffold(
+        topBar = { 
+            TopAppBar(
+                title = { Text(licensePlate, color = Color.White) }, 
+                navigationIcon = { 
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White) } 
+                },
+                actions = {
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "Menu", tint = PrimaryApp)
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                            modifier = Modifier.background(SurfaceHigh)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(if (isBlocked) "Unblock Caller" else "Block Caller", color = Color.White) },
+                                onClick = {
+                                    showMenu = false
+                                    scope.launch {
+                                        if (isBlocked) {
+                                            if (ApiService.api.unblockUser("Bearer $jwtToken", mapOf("targetId" to otherUserId)).isSuccessful) {
+                                                AppLogger.logEvent("user_unblocked")
+                                                isBlocked = false
+                                            }
+                                        } else {
+                                            if (ApiService.api.blockUser("Bearer $jwtToken", mapOf("targetId" to otherUserId)).isSuccessful) {
+                                                AppLogger.logEvent("user_blocked")
+                                                isBlocked = true
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Report to Safety Team", color = ErrorApp) },
+                                onClick = {
+                                    showMenu = false
+                                    showReportDialog = true
+                                }
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Background)
+            ) 
+        },
+        containerColor = Background
+    ) { padding ->
+        LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (isLoading) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = PrimaryApp)
+                    }
+                }
+            } else if (detailedCalls.isEmpty()) {
+                item { Text("No history found.", color = OnSurfaceVariant, modifier = Modifier.padding(24.dp)) }
+            } else {
+                items(detailedCalls) { call ->
+                    val isOutgoing = call.callerId == myUserId
+                    
+                    ListItem(
+                        headlineContent = { 
+                            Text(if (isOutgoing) "Outgoing Call" else "Incoming Call", color = if (isOutgoing) PrimaryApp else Color.White) 
+                        },
+                        supportingContent = { Text(formatIsoDate(call.createdAt), color = OnSurfaceVariant) },
+                        colors = ListItemDefaults.colors(containerColor = SurfaceLow),
+                        trailingContent = {
+                            Icon(
+                                imageVector = if (isOutgoing) Icons.Filled.CallMade else Icons.Filled.CallReceived, 
+                                contentDescription = null, 
+                                tint = if (isOutgoing) PrimaryApp else Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    )
+                    HorizontalDivider(color = Background)
+                }
+            }
+        }
+        
+        if (showReportDialog) {
             ReportUserDialog(
-                userId = selectedUserIdForReport!!,
+                userId = otherUserId,
                 token = jwtToken,
-                onDismiss = { selectedUserIdForReport = null }
+                onDismiss = { showReportDialog = false }
             )
         }
     }

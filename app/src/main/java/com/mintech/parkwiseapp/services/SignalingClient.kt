@@ -30,6 +30,9 @@ class SignalingClient(private val context: Context) {
     val rtcState = MutableStateFlow("Connecting...")
     
     val currentVehiclePlate = MutableStateFlow("")
+    
+    // 🚨 NEW: Absolute timestamp to fix background timer resets
+    var callStartTime: Long = 0L
 
     private var targetUserId: String? = null
     private var socket: Socket? = null
@@ -38,7 +41,6 @@ class SignalingClient(private val context: Context) {
     private var localAudioTrack: AudioTrack? = null
 
     private var pendingAcceptCallerId: String? = null
-    
     private var pendingDeliveryAckCallerId: String? = null
     private var offlineTimeoutRunnable: Runnable? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -47,7 +49,6 @@ class SignalingClient(private val context: Context) {
     private var hasRemoteDescription = false
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    
     private var ringbackPlayer: MediaPlayer? = null
 
     init {
@@ -155,7 +156,6 @@ class SignalingClient(private val context: Context) {
         socket?.on("call-ended") { cleanup() }
     }
     
-    // 🚨 NEW: Connects the socket BEFORE the HTTP call is made to avoid missing the fast iOS events
     fun preconnectSocket() {
         if (socket?.connected() != true) {
             socket?.connect()
@@ -285,6 +285,11 @@ class SignalingClient(private val context: Context) {
                         if (newState == PeerConnection.IceConnectionState.CONNECTED || newState == PeerConnection.IceConnectionState.COMPLETED) {
                             AppLogger.logEvent("webrtc_ice_connected")
                             offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+                            
+                            // 🚨 FIX: Set absolute timestamp so the timer doesn't reset on backgrounding
+                            if (callStartTime == 0L) {
+                                callStartTime = System.currentTimeMillis()
+                            }
                             rtcState.value = "Connected"
                         } else if (newState == PeerConnection.IceConnectionState.FAILED) {
                             AppLogger.logEvent("webrtc_ice_failed")
@@ -439,6 +444,7 @@ class SignalingClient(private val context: Context) {
         isCallActive.value = false
         targetUserId = null
         currentVehiclePlate.value = ""
+        callStartTime = 0L // 🚨 NEW: Reset the timestamp when the call actually ends
         hasRemoteDescription = false
         remoteCandidatesQueue.clear()
     }

@@ -13,9 +13,8 @@ data class VehicleRequest(val licensePlate: String)
 data class CallInitiateRequest(val licensePlate: String)
 data class CallInitiateResponse(val targetUserId: String?, val error: String?)
 
-data class CallRecord(val _id: String, val licensePlate: String, val callerId: String?, val receiverId: String?, val createdAt: String?)
+data class CallRecord(val _id: String, val licensePlate: String?, val callerId: String?, val receiverId: String?, val createdAt: String?)
 
-// 🚨 NEW: The grouped model to match the iOS backend changes
 data class GroupedCall(val _id: String, val latestCall: CallRecord, val totalCalls: Int)
 
 data class TokenSyncRequest(val fcmToken: String, val voipToken: String = "")
@@ -45,17 +44,19 @@ interface ParkwiseApi {
     @POST("call/initiate")
     suspend fun initiateCall(@Header("Authorization") token: String, @Body req: CallInitiateRequest): Response<CallInitiateResponse>
 
-    // --- SAFETY & ACCOUNT ROUTES ---
-    @GET("call/history")
-    suspend fun getCallHistory(@Header("Authorization") token: String): Response<List<CallRecord>>
-    
-    // 🚨 NEW: The paginated grouped history endpoint used by iOS
     @GET("call/history/grouped")
     suspend fun getGroupedCalls(
         @Header("Authorization") token: String,
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 15
     ): Response<List<GroupedCall>>
+    
+    // 🚨 NEW: Fetch the deep dive of calls for the new CallDetailScreen
+    @GET("call/history/details/{otherUserId}")
+    suspend fun getCallDetails(
+        @Header("Authorization") token: String,
+        @Path("otherUserId") otherUserId: String
+    ): Response<List<CallRecord>>
 
     @POST("users/block")
     suspend fun blockUser(@Header("Authorization") token: String, @Body request: Map<String, String>): Response<Unit>

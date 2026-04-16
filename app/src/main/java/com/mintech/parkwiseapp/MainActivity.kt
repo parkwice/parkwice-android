@@ -31,7 +31,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Init Analytics
         AppLogger.init(FirebaseAnalytics.getInstance(this))
         AppLogger.logEvent("app_open")
 
@@ -79,8 +78,25 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         
+                        // 🚨 NEW: The History Screen now takes a navigation action
                         composable("history") {
-                            CallHistoryScreen(onBack = { navController.popBackStack() })
+                            CallHistoryScreen(
+                                onBack = { navController.popBackStack() },
+                                onNavigateToDetail = { userId, plate -> 
+                                    navController.navigate("call_detail/$userId/$plate")
+                                }
+                            )
+                        }
+                        
+                        // 🚨 NEW: The route to the detail screen!
+                        composable("call_detail/{userId}/{plate}") { backStackEntry ->
+                            val userId = backStackEntry.arguments?.getString("userId") ?: ""
+                            val plate = backStackEntry.arguments?.getString("plate") ?: ""
+                            CallDetailScreen(
+                                otherUserId = userId,
+                                licensePlate = plate,
+                                onBack = { navController.popBackStack() }
+                            )
                         }
                         
                         composable("account") {
