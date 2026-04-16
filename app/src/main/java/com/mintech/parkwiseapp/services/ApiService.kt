@@ -12,7 +12,12 @@ data class Vehicle(val _id: String, val licensePlate: String)
 data class VehicleRequest(val licensePlate: String)
 data class CallInitiateRequest(val licensePlate: String)
 data class CallInitiateResponse(val targetUserId: String?, val error: String?)
+
 data class CallRecord(val _id: String, val licensePlate: String, val callerId: String?, val receiverId: String?, val createdAt: String?)
+
+// 🚨 NEW: The grouped model to match the iOS backend changes
+data class GroupedCall(val _id: String, val latestCall: CallRecord, val totalCalls: Int)
+
 data class TokenSyncRequest(val fcmToken: String, val voipToken: String = "")
 data class GoogleLoginRequest(val email: String, val name: String, val googleId: String, val fcmToken: String, val voipToken: String, val photoUrl: String)
 data class User(val _id: String, val email: String)
@@ -25,7 +30,6 @@ interface ParkwiseApi {
     @POST("auth/fcm")
     suspend fun syncDeviceToken(@Header("Authorization") token: String, @Body req: TokenSyncRequest): Response<Unit>
 
-    // 🚨 NEW: Added the secure logout route to clear push tokens
     @POST("auth/logout")
     suspend fun logout(@Header("Authorization") token: String): Response<Unit>
 
@@ -44,6 +48,14 @@ interface ParkwiseApi {
     // --- SAFETY & ACCOUNT ROUTES ---
     @GET("call/history")
     suspend fun getCallHistory(@Header("Authorization") token: String): Response<List<CallRecord>>
+    
+    // 🚨 NEW: The paginated grouped history endpoint used by iOS
+    @GET("call/history/grouped")
+    suspend fun getGroupedCalls(
+        @Header("Authorization") token: String,
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 15
+    ): Response<List<GroupedCall>>
 
     @POST("users/block")
     suspend fun blockUser(@Header("Authorization") token: String, @Body request: Map<String, String>): Response<Unit>
@@ -69,7 +81,6 @@ object ApiService {
 
     val api: ParkwiseApi = retrofit.create(ParkwiseApi::class.java)
 
-    // Helper to extract JSON error messages from failed Retrofit responses
     fun extractErrorMessage(errorBody: okhttp3.ResponseBody?): String {
         return try {
             val json = JSONObject(errorBody?.string() ?: "")

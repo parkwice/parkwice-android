@@ -90,10 +90,13 @@ fun DashboardScreen(navController: NavController) {
 
     LaunchedEffect(Unit) { loadVehicles() }
 
-    // 🚨 NEW: Extract the call logic so we can delay it if permissions are missing
     val performCall = {
         isCalling = true
         AppLogger.logEvent("call_attempted")
+        
+        // 🚨 PRECONNECT SOCKET TO PREVENT RACE CONDITION WITH IOS
+        SignalingClient.getInstance(context).preconnectSocket()
+        
         coroutineScope.launch {
             try {
                 val formattedSearch = searchPlate.replace(" ", "").replace("-", "").uppercase()
@@ -215,7 +218,6 @@ fun DashboardScreen(navController: NavController) {
 
                         Button(
                             onClick = {
-                                // 🚨 NEW: Check permissions before launching the call
                                 if (!arePermissionsGranted(context)) {
                                     showPermissionFlow = true
                                     pendingAction = { performCall() }

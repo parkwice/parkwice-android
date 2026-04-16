@@ -98,7 +98,6 @@ class SignalingClient(private val context: Context) {
             }
         }
 
-        // 🚨 NEW: iOS emits "call-delivered" when a push arrives. We MUST listen for this!
         socket?.on("call-delivered") {
             mainHandler.post {
                 offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) } 
@@ -154,6 +153,13 @@ class SignalingClient(private val context: Context) {
         }
 
         socket?.on("call-ended") { cleanup() }
+    }
+    
+    // 🚨 NEW: Connects the socket BEFORE the HTTP call is made to avoid missing the fast iOS events
+    fun preconnectSocket() {
+        if (socket?.connected() != true) {
+            socket?.connect()
+        }
     }
     
     private fun startRingbackTone() {

@@ -9,7 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed // 🚨 Essential for pagination
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mintech.parkwiseapp.services.ApiService
 import com.mintech.parkwiseapp.services.CallInitiateRequest
-import com.mintech.parkwiseapp.services.CallRecord
+import com.mintech.parkwiseapp.services.GroupedCall
 import com.mintech.parkwiseapp.services.SignalingClient
 import com.mintech.parkwiseapp.ui.theme.*
 import kotlinx.coroutines.launch
@@ -196,84 +196,53 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     }
 }
 
-data class GroupedCallRecord(
-    val licensePlate: String,
-    val callerId: String?,
-    val receiverId: String?,
-    val lastCallTime: String?,
-    val callCount: Int
-)
-
-fun groupHistory(history: List<CallRecord>): List<GroupedCallRecord> {
-    if (history.isEmpty()) return emptyList()
-    val grouped = mutableListOf<GroupedCallRecord>()
-    var currentGroup = mutableListOf(history[0])
-
-    for (i in 1 until history.size) {
-        val record = history[i]
-        if (record.licensePlate == currentGroup.first().licensePlate) {
-            currentGroup.add(record)
-        } else {
-            grouped.add(
-                GroupedCallRecord(
-                    licensePlate = currentGroup.first().licensePlate ?: "Unknown Vehicle",
-                    callerId = currentGroup.first().callerId,
-                    receiverId = currentGroup.first().receiverId,
-                    lastCallTime = currentGroup.first().createdAt,
-                    callCount = currentGroup.size
-                )
-            )
-            currentGroup = mutableListOf(record)
-        }
-    }
-    if (currentGroup.isNotEmpty()) {
-        grouped.add(
-            GroupedCallRecord(
-                licensePlate = currentGroup.first().licensePlate ?: "Unknown Vehicle",
-                callerId = currentGroup.first().callerId,
-                receiverId = currentGroup.first().receiverId,
-                lastCallTime = currentGroup.first().createdAt,
-                callCount = currentGroup.size
-            )
-        )
-    }
-    return grouped
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CallHistoryScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val jwtToken = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE).getString("jwt_token", "") ?: ""
     
-    var history by remember { mutableStateOf<List<CallRecord>>(emptyList()) }
+    // 🚨 NEW: Switched to API-powered GroupedCall pagination
+    var groupedCalls by remember { mutableStateOf<List<GroupedCall>>(emptyList()) }
+    var currentPage by remember { mutableStateOf(1) }
+    var isLoading by remember { mutableStateOf(false) }
+    var hasMoreData by remember { mutableStateOf(true) }
+    
     var blockedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedUserIdForReport by remember { mutableStateOf<String?>(null) }
     
     var callingPlate by remember { mutableStateOf<String?>(null) }
-    
     var showPermissionFlow by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     
     val scope = rememberCoroutineScope()
 
+    // 🚨 NEW: Infinite Scroll Pagination Function
+    fun loadMore() {
+        if (isLoading || !hasMoreData) return
+        isLoading = true
+        scope.launch {
+            try {
+                val res = ApiService.api.getGroupedCalls("Bearer $jwtToken", currentPage, 15)
+                if (res.isSuccessful) {
+                    val newCalls = res.body() ?: emptyList()
+                    if (newCalls.size < 15) hasMoreData = false
+                    groupedCalls = groupedCalls + newCalls
+                    currentPage++
+                } else {
+                    Toast.makeText(context, "Could not load history.", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                AppLogger.recordError(e, "History fetch failed")
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         AppLogger.logEvent("screen_view", mapOf("screen_name" to "CallHistoryScreen"))
-        
-        // 🚨 FIX: Wrap in safe try-catch blocks to prevent silent parsing crashes.
-        // We also show a Toast if the endpoint returns a 404 or fails to load.
-        try {
-            val historyRes = ApiService.api.getCallHistory("Bearer $jwtToken")
-            if (historyRes.isSuccessful) {
-                history = historyRes.body() ?: emptyList()
-            } else {
-                AppLogger.logEvent("history_fetch_failed", mapOf("code" to historyRes.code().toString()))
-                Toast.makeText(context, "Could not load history. (Error ${historyRes.code()})", Toast.LENGTH_SHORT).show()
-            }
-        } catch (e: Exception) {
-            AppLogger.recordError(e, "History fetch failed")
-        }
-
+        loadMore()
         try {
             val blockedRes = ApiService.api.getBlockedUsers("Bearer $jwtToken")
             if (blockedRes.isSuccessful) {
@@ -283,8 +252,6 @@ fun CallHistoryScreen(onBack: () -> Unit) {
             AppLogger.recordError(e, "Blocked fetch failed")
         }
     }
-
-    val groupedHistory = remember(history) { groupHistory(history) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Call History", color = Color.White) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Background)) },
@@ -306,21 +273,28 @@ fun CallHistoryScreen(onBack: () -> Unit) {
         }
         
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (groupedHistory.isEmpty()) {
+            if (groupedCalls.isEmpty() && !isLoading) {
                 item { Text("No calls yet.", color = OnSurfaceVariant, modifier = Modifier.padding(24.dp)) }
             }
-            items(groupedHistory) { record ->
-                val isBlocked = blockedIds.contains(record.callerId)
+            
+            // 🚨 NEW: using itemsIndexed to trigger automatic data loading when scrolling to bottom
+            itemsIndexed(groupedCalls) { index, group ->
+                if (index == groupedCalls.size - 1 && hasMoreData && !isLoading) {
+                    LaunchedEffect(Unit) { loadMore() }
+                }
+                
+                val record = group.latestCall
+                val isBlocked = blockedIds.contains(group._id)
                 
                 ListItem(
                     headlineContent = { 
                         Text(
-                            text = if (record.callCount > 1) "${record.licensePlate} (${record.callCount})" else record.licensePlate, 
+                            text = if (group.totalCalls > 1) "${record.licensePlate} (${group.totalCalls})" else record.licensePlate, 
                             color = Color.White, 
                             fontWeight = FontWeight.Bold
                         ) 
                     },
-                    supportingContent = { Text(record.lastCallTime ?: "Unknown time", color = OnSurfaceVariant) },
+                    supportingContent = { Text(record.createdAt ?: "Unknown time", color = OnSurfaceVariant) },
                     colors = ListItemDefaults.colors(containerColor = SurfaceLow),
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -337,6 +311,10 @@ fun CallHistoryScreen(onBack: () -> Unit) {
                                         val performCallFromHistory = {
                                             callingPlate = record.licensePlate
                                             AppLogger.logEvent("call_attempted_from_history")
+                                            
+                                            // 🚨 PRECONNECT SOCKET TO PREVENT RACE CONDITION
+                                            SignalingClient.getInstance(context).preconnectSocket()
+                                            
                                             scope.launch {
                                                 try {
                                                     val response = ApiService.api.initiateCall("Bearer $jwtToken", CallInitiateRequest(record.licensePlate))
@@ -378,7 +356,7 @@ fun CallHistoryScreen(onBack: () -> Unit) {
 
                             TextButton(onClick = {
                                 scope.launch {
-                                    val id = record.callerId ?: return@launch
+                                    val id = group._id
                                     if (isBlocked) {
                                         if (ApiService.api.unblockUser("Bearer $jwtToken", mapOf("targetId" to id)).isSuccessful) {
                                             AppLogger.logEvent("user_unblocked")
@@ -395,7 +373,7 @@ fun CallHistoryScreen(onBack: () -> Unit) {
                             
                             TextButton(onClick = { 
                                 AppLogger.logEvent("report_user_clicked")
-                                selectedUserIdForReport = record.callerId 
+                                selectedUserIdForReport = group._id 
                             }) {
                                 Text("Report", color = Color(0xFFFFA500), fontWeight = FontWeight.Bold)
                             }
@@ -403,6 +381,14 @@ fun CallHistoryScreen(onBack: () -> Unit) {
                     }
                 )
                 HorizontalDivider(color = Background)
+            }
+            
+            if (isLoading) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = PrimaryApp, modifier = Modifier.size(24.dp))
+                    }
+                }
             }
         }
 
