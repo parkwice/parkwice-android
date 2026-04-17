@@ -263,7 +263,7 @@ class SignalingClient(private val context: Context) {
 
         val iceServers = listOf(
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("turn:76.13.5.244:3478").setUsername("myuser").setPassword("mypassword").createIceServer()
+            PeerConnection.IceServer.builder("turn:187.127.152.59:3478").setUsername("myuser").setPassword("mypassword").createIceServer()
         )
         
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers)
