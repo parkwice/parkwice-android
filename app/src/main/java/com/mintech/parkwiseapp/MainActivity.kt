@@ -81,25 +81,10 @@ class MainActivity : ComponentActivity() {
                         }
                         
                         composable("history") {
-                            CallHistoryScreen(
-                                onBack = { navController.popBackStack() },
-                                onNavigateToDetail = { userId, plate -> 
-                                    // 🚨 Simply pass the ID and Plate to the detail view
-                                    navController.navigate("call_detail/$userId?plate=${Uri.encode(plate)}")
-                                }
-                            )
+                            CallHistoryScreen(onBack = { navController.popBackStack() })
                         }
-                        
-                        composable("call_detail/{userId}?plate={plate}") { backStackEntry ->
-                            val userId = backStackEntry.arguments?.getString("userId") ?: ""
-                            val plate = backStackEntry.arguments?.getString("plate") ?: "Unknown Vehicle"
-                            CallDetailScreen(
-                                otherUserId = userId,
-                                licensePlate = plate,
-                                onBack = { navController.popBackStack() }
-                            )
-                        }
-                        
+
+
                         composable("account") {
                             AccountScreen(
                                 onBack = { navController.popBackStack() },

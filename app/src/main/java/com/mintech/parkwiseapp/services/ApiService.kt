@@ -13,10 +13,14 @@ data class VehicleRequest(val licensePlate: String)
 data class CallInitiateRequest(val licensePlate: String)
 data class CallInitiateResponse(val targetUserId: String?, val error: String?)
 
-data class CallRecord(val _id: String, val licensePlate: String?, val callerId: String?, val receiverId: String?, val createdAt: String?)
-
-// 🚨 The exact GroupedCall model returned by the backend
-data class GroupedCall(val _id: String, val latestCall: CallRecord, val totalCalls: Int)
+data class CallRecord(
+    val _id: String,
+    val licensePlate: String?,
+    val callerId: String?,
+    val receiverId: String?,
+    val otherUserId: String?,
+    val createdAt: String?
+)
 
 data class TokenSyncRequest(val fcmToken: String, val voipToken: String = "")
 data class GoogleLoginRequest(val email: String, val name: String, val googleId: String, val fcmToken: String, val voipToken: String, val photoUrl: String)
@@ -45,19 +49,11 @@ interface ParkwiseApi {
     @POST("call/initiate")
     suspend fun initiateCall(@Header("Authorization") token: String, @Body req: CallInitiateRequest): Response<CallInitiateResponse>
 
-    // 🚨 1. Fetch grouped calls by otherUserId
-    @GET("call/history/grouped")
-    suspend fun getGroupedCalls(
+    @GET("call/history/list")
+    suspend fun getCallHistoryList(
         @Header("Authorization") token: String,
         @Query("page") page: Int = 1,
-        @Query("limit") limit: Int = 15
-    ): Response<List<GroupedCall>>
-    
-    // 🚨 2. Fetch specific details for that otherUserId
-    @GET("call/history/details/{otherUserId}")
-    suspend fun getCallDetails(
-        @Header("Authorization") token: String,
-        @Path("otherUserId") otherUserId: String
+        @Query("limit") limit: Int = 20
     ): Response<List<CallRecord>>
 
     @POST("users/block")
