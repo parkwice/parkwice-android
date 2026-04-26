@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -28,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.mintech.parkwiseapp.services.ApiService
@@ -47,10 +51,9 @@ fun SideDrawerContent(
     userEmail: String,
     photoUrl: String,
     onNavigateToAccount: () -> Unit,
-    onNavigateToHistory: () -> Unit
+    onNavigateToHistory: () -> Unit,
+    onNavigateToWebView: (title: String, url: String) -> Unit
 ) {
-    val context = LocalContext.current
-
     ModalDrawerSheet(
         modifier = Modifier.width(300.dp),
         drawerContainerColor = SurfaceHigh
@@ -64,7 +67,7 @@ fun SideDrawerContent(
             Spacer(modifier = Modifier.height(12.dp))
             Text("Parkwise", style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Bold)
             Text(userEmail, style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
-            
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = OnSurfaceVariant.copy(alpha = 0.2f))
 
             NavigationDrawerItem(
@@ -79,17 +82,36 @@ fun SideDrawerContent(
                 onClick = onNavigateToHistory,
                 colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
             )
-            
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = OnSurfaceVariant.copy(alpha = 0.2f))
 
-            val openUrl = { url: String, eventName: String -> 
-                AppLogger.logEvent(eventName)
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) 
-            }
-            
-            NavigationDrawerItem(label = { Text("Terms and Conditions", color = Color.White) }, selected = false, onClick = { openUrl("https://parkwice.com/terms.html", "terms_clicked") }, colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent))
-            NavigationDrawerItem(label = { Text("Privacy Policy", color = Color.White) }, selected = false, onClick = { openUrl("https://parkwice.com/privacy.html", "privacy_clicked") }, colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent))
-            NavigationDrawerItem(label = { Text("Contact Support", color = Color.White) }, selected = false, onClick = { openUrl("https://parkwice.com/contact.html", "contact_support_clicked") }, colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent))
+            NavigationDrawerItem(
+                label = { Text("Terms and Conditions", color = Color.White) },
+                selected = false,
+                onClick = {
+                    AppLogger.logEvent("terms_clicked")
+                    onNavigateToWebView("Terms and Conditions", "https://parkwice.com/terms.html")
+                },
+                colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
+            )
+            NavigationDrawerItem(
+                label = { Text("Privacy Policy", color = Color.White) },
+                selected = false,
+                onClick = {
+                    AppLogger.logEvent("privacy_clicked")
+                    onNavigateToWebView("Privacy Policy", "https://parkwice.com/privacy.html")
+                },
+                colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
+            )
+            NavigationDrawerItem(
+                label = { Text("Contact Support", color = Color.White) },
+                selected = false,
+                onClick = {
+                    AppLogger.logEvent("contact_support_clicked")
+                    onNavigateToWebView("Contact Support", "https://parkwice.com/contact.html")
+                },
+                colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
+            )
         }
     }
 }
@@ -195,6 +217,51 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                 containerColor = SurfaceHigh, textContentColor = Color.White, titleContentColor = Color.White
             )
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WebViewScreen(title: String, url: String, onBack: () -> Unit) {
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        AppLogger.logEvent("screen_view", mapOf("screen_name" to "WebViewScreen", "url" to url))
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(title, color = Color.White) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Background)
+            )
+        },
+        containerColor = Background
+    ) { padding ->
+        AndroidView(
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                            val uri = request.url
+                            if (uri.scheme == "mailto") {
+                                ctx.startActivity(Intent(Intent.ACTION_SENDTO, uri))
+                                return true
+                            }
+                            return false
+                        }
+                    }
+                    loadUrl(url)
+                }
+            }
+        )
     }
 }
 

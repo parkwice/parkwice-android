@@ -3,6 +3,7 @@ package com.mintech.parkwiseapp.ui.screens
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -127,13 +128,17 @@ fun DashboardScreen(navController: NavController) {
             SideDrawerContent(
                 userEmail = userEmail,
                 photoUrl = userPhoto,
-                onNavigateToAccount = { 
+                onNavigateToAccount = {
                     coroutineScope.launch { drawerState.close() }
-                    navController.navigate("account") 
+                    navController.navigate("account")
                 },
-                onNavigateToHistory = { 
+                onNavigateToHistory = {
                     coroutineScope.launch { drawerState.close() }
-                    navController.navigate("history") 
+                    navController.navigate("history")
+                },
+                onNavigateToWebView = { title, url ->
+                    coroutineScope.launch { drawerState.close() }
+                    navController.navigate("web_view/${Uri.encode(title)}?url=${Uri.encode(url)}")
                 }
             )
         }

@@ -110,6 +110,16 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
+
+                        composable("web_view/{title}?url={url}") { backStackEntry ->
+                            val title = backStackEntry.arguments?.getString("title") ?: ""
+                            val url = backStackEntry.arguments?.getString("url") ?: ""
+                            WebViewScreen(
+                                title = title,
+                                url = url,
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
                     }
                 }
             }
