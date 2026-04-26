@@ -6,7 +6,6 @@ import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -257,25 +256,6 @@ fun WebViewScreen(title: String, url: String, onBack: () -> Unit) {
     }
 }
 
-// 🚨 Shimmer Placeholder for Loading States
-@Composable
-fun ShimmerHistoryItem() {
-    val transition = rememberInfiniteTransition()
-    val alpha by transition.animateFloat(
-        initialValue = 0.1f,
-        targetValue = 0.3f,
-        animationSpec = infiniteRepeatable(animation = tween(800, easing = LinearEasing), repeatMode = RepeatMode.Reverse)
-    )
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(48.dp).background(Color.White.copy(alpha = alpha), CircleShape))
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Box(modifier = Modifier.height(16.dp).fillMaxWidth(0.5f).background(Color.White.copy(alpha = alpha), RoundedCornerShape(4.dp)))
-            Spacer(modifier = Modifier.height(8.dp))
-            Box(modifier = Modifier.height(12.dp).fillMaxWidth(0.3f).background(Color.White.copy(alpha = alpha), RoundedCornerShape(4.dp)))
-        }
-    }
-}
 
 fun formatIsoDate(isoString: String?): String {
     if (isoString.isNullOrEmpty()) return "Unknown Time"
