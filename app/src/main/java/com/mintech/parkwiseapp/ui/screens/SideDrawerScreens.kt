@@ -114,8 +114,12 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
         topBar = { TopAppBar(title = { Text("Account", color = Color.White) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Background)) },
         containerColor = Background
     ) { padding ->
+        val versionName = remember {
+            try { context.packageManager.getPackageInfo(context.packageName, 0).versionName } catch (e: Exception) { "" }
+        }
+
         Column(modifier = Modifier.padding(padding).fillMaxSize().padding(24.dp)) {
-            
+
             Button(
                 onClick = { showLogoutDialog = true },
                 modifier = Modifier.fillMaxWidth(),
@@ -131,6 +135,14 @@ fun AccountScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = SurfaceLow)
             ) { Text("Delete Account", color = ErrorApp) }
+
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = "Version $versionName",
+                color = OnSurfaceVariant.copy(alpha = 0.5f),
+                fontSize = 12.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
         }
 
         if (showLogoutDialog) {
