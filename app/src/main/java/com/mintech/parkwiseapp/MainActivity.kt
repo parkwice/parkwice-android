@@ -25,6 +25,7 @@ import com.google.firebase.analytics.FirebaseAnalytics
 import com.mintech.parkwiseapp.services.SignalingClient
 import com.mintech.parkwiseapp.ui.screens.*
 import com.mintech.parkwiseapp.services.AppLogger
+import com.mintech.parkwiseapp.ui.theme.ParkwiseAppTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -44,6 +45,7 @@ class MainActivity : ComponentActivity() {
         val signalingClient = SignalingClient.getInstance(applicationContext)
 
         setContent {
+            ParkwiseAppTheme {
             val navController = rememberNavController()
             val isCallActive by signalingClient.isCallActive.collectAsState()
 
@@ -111,6 +113,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            } // ParkwiseAppTheme
         }
     }
 

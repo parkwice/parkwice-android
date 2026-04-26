@@ -1,40 +1,29 @@
 package com.mintech.parkwiseapp.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.darkColors
-import androidx.compose.material.lightColors
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// Parkwise is a strictly dark-themed app based on your UI designs!
-private val DarkColorPalette = darkColors(
+private val AppColorScheme = darkColorScheme(
     primary = PrimaryApp,
-    primaryVariant = PrimaryApp,
-    secondary = PrimaryApp,
-    background = Background,
-    surface = SurfaceLow,
-    error = ErrorApp,
     onPrimary = Color.White,
+    secondary = PrimaryApp,
     onSecondary = Color.White,
+    background = Background,
     onBackground = Color.White,
-    onSurface = Color.White
+    surface = SurfaceLow,
+    onSurface = Color.White,
+    surfaceVariant = SurfaceHigh,
+    onSurfaceVariant = OnSurfaceVariant,
+    error = ErrorApp,
+    onError = Color.White
 )
 
 @Composable
-fun ParkwiseAppTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(), // Keeping the parameter for standard Compose compatibility
-    content: @Composable () -> Unit
-) {
-    // We force the DarkColorPalette here to ensure the app always looks like the original iOS/Flutter design
-    val colors = DarkColorPalette
-
+fun ParkwiseAppTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colors = colors,
-        // If you have a Type.kt file, you can uncomment the next line:
-        // typography = Typography,
-        // If you have a Shape.kt file, you can uncomment the next line:
-        // shapes = Shapes,
+        colorScheme = AppColorScheme,
         content = content
     )
 }
