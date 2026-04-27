@@ -65,6 +65,7 @@ fun DashboardScreen(navController: NavController) {
     var searchPlate by remember { mutableStateOf("") }
     var isCalling by remember { mutableStateOf(false) }
     var vehicles by remember { mutableStateOf<List<Vehicle>>(emptyList()) }
+    var isVehiclesLoading by remember { mutableStateOf(true) }
 
     var showPermissionFlow by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -75,6 +76,7 @@ fun DashboardScreen(navController: NavController) {
 
     fun loadVehicles() {
         coroutineScope.launch {
+            isVehiclesLoading = true
             try {
                 val response = ApiService.api.getVehicles("Bearer $jwtToken")
                 if (response.isSuccessful) {
@@ -85,6 +87,8 @@ fun DashboardScreen(navController: NavController) {
                 }
             } catch (e: Exception) {
                 AppLogger.recordError(e, "Failed to load vehicles")
+            } finally {
+                isVehiclesLoading = false
             }
         }
     }
@@ -267,7 +271,9 @@ fun DashboardScreen(navController: NavController) {
                     }
                 }
 
-                if (vehicles.isEmpty()) {
+                if (isVehiclesLoading) {
+                    items(2) { ShimmerVehicleCard() }
+                } else if (vehicles.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text("No vehicles registered yet.", color = OnSurfaceVariant, modifier = Modifier.padding(vertical = 16.dp))
                     }
