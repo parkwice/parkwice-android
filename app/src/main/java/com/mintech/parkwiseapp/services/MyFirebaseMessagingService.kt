@@ -107,7 +107,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             val channel = NotificationChannel(
                 channelId, "Incoming Emergency Calls", NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Rings for incoming Parkwise calls"
+                description = "Rings for incoming Parkwice calls"
                 setSound(
                     ringtoneUri,
                     AudioAttributes.Builder()

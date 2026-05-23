@@ -73,7 +73,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
 
                     val payload = GoogleLoginRequest(
                         email = account.email ?: "",
-                        name = account.displayName ?: "Parkwise User",
+                        name = account.displayName ?: "Parkwice User",
                         googleId = account.id ?: "",
                         fcmToken = fcmToken,
                         voipToken = "", 

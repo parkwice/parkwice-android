@@ -59,7 +59,7 @@ fun FriendlyPermissionFlow(
             text = {
                 Column {
                     Text(
-                        "To safely connect you with vehicle owners, Parkwise needs:", 
+                        "To safely connect you with vehicle owners, Parkwice needs:",
                         color = OnSurfaceVariant 
                     )
                     Spacer(modifier = Modifier.height(12.dp))
