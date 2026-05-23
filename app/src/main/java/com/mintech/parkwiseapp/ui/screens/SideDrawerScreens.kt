@@ -83,7 +83,7 @@ fun SideDrawerContent(
                 selected = false,
                 onClick = {
                     AppLogger.logEvent("terms_clicked")
-                    onNavigateToWebView("Terms and Conditions", "https://parkwice.com/terms.html")
+                    onNavigateToWebView("Terms and Conditions", "https://parkwice.com/terms")
                 },
                 colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
             )
@@ -92,7 +92,7 @@ fun SideDrawerContent(
                 selected = false,
                 onClick = {
                     AppLogger.logEvent("privacy_clicked")
-                    onNavigateToWebView("Privacy Policy", "https://parkwice.com/privacy.html")
+                    onNavigateToWebView("Privacy Policy", "https://parkwice.com/privacy")
                 },
                 colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
             )
@@ -101,7 +101,7 @@ fun SideDrawerContent(
                 selected = false,
                 onClick = {
                     AppLogger.logEvent("contact_support_clicked")
-                    onNavigateToWebView("Contact Support", "https://parkwice.com/contact.html")
+                    onNavigateToWebView("Contact Support", "https://parkwice.com/contact")
                 },
                 colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
             )
