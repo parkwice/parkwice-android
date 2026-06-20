@@ -157,7 +157,7 @@ fun IncomingCallScreen(licensePlate: String, onAccept: () -> Unit, onDecline: ()
 
     Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(SurfaceHigh, Background)))) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Parkwise", color = OnSurfaceVariant, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 6.sp)
+            Text("Parkwice", color = OnSurfaceVariant, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 6.sp)
             Spacer(modifier = Modifier.height(32.dp))
             Text("Incoming Secure Call", color = PrimaryApp, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             Spacer(modifier = Modifier.height(12.dp))

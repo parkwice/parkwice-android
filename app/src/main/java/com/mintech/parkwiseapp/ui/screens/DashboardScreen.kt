@@ -176,7 +176,7 @@ fun DashboardScreen(navController: NavController) {
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
-                    Text("Parkwise", color = PrimaryApp, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("Parkwice", color = PrimaryApp, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Text(userEmail, color = OnSurfaceVariant, fontSize = 12.sp, maxLines = 1)
                 }
             }

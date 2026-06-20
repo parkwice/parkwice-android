@@ -58,7 +58,7 @@ fun SideDrawerContent(
                 modifier = Modifier.size(64.dp).clip(CircleShape)
             )
             Spacer(modifier = Modifier.height(12.dp))
-            Text("Parkwise", style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Bold)
+            Text("Parkwice", style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Bold)
             Text(userEmail, style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = OnSurfaceVariant.copy(alpha = 0.2f))

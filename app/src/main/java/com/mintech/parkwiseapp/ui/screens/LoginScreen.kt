@@ -132,7 +132,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
         )
 
         Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.Start) {
-            Text("Parkwise", color = PrimaryApp, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 48.dp, start = 24.dp))
+            Text("Parkwice", color = PrimaryApp, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 48.dp, start = 24.dp))
             Spacer(modifier = Modifier.weight(1f))
 
             Column(modifier = Modifier.padding(horizontal = 24.dp).padding(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
