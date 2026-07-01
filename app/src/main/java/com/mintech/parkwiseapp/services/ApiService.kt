@@ -27,6 +27,10 @@ data class GoogleLoginRequest(val email: String, val name: String, val googleId:
 data class User(val _id: String, val email: String)
 data class GoogleLoginResponse(val token: String, val user: User)
 
+// 🚨 NEW: TURN Credential Models
+data class IceServerConfig(val urls: List<String>, val username: String? = null, val credential: String? = null)
+data class TurnCredentialsResponse(val iceServers: List<IceServerConfig>)
+
 interface ParkwiseApi {
     @POST("auth/google")
     suspend fun loginWithGoogle(@Body req: GoogleLoginRequest): Response<GoogleLoginResponse>
@@ -48,6 +52,10 @@ interface ParkwiseApi {
 
     @POST("call/initiate")
     suspend fun initiateCall(@Header("Authorization") token: String, @Body req: CallInitiateRequest): Response<CallInitiateResponse>
+
+    // 🚨 NEW: Fetch secure TURN credentials
+    @GET("call/turn-credentials")
+    suspend fun fetchTurnCredentials(@Header("Authorization") token: String): Response<TurnCredentialsResponse>
 
     @GET("call/history/list")
     suspend fun getCallHistoryList(

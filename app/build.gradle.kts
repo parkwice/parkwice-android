@@ -17,8 +17,8 @@ android {
         minSdk = 24
         // ✅ FIX: Match the compileSdk
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.1"
+        versionCode = 1
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

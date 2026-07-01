@@ -18,13 +18,14 @@ import com.mintech.parkwiseapp.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.webrtc.PeerConnection
 
 class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         Log.d("FCM_DEBUG", "New FCM Token Generated: $token")
-        
+
         AppLogger.logEvent("fcm_token_generated")
 
         val jwtToken = getSharedPreferences("AppPrefs", MODE_PRIVATE).getString("jwt_token", null)
@@ -65,10 +66,38 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         AppLogger.logEvent("incoming_call_push_received")
         val licensePlate = data["licensePlate"] ?: data["handle"] ?: "Vehicle Alert"
 
-        // 🚨 NEW: Tell the server we got the push so the caller sees "Ringing..."
+        // 🚨 NEW: Parse the dynamic TURN credentials sent by backend
+        val turnCredsJson = data["turnCredentials"]
+        if (turnCredsJson != null) {
+            try {
+                val jsonArray = org.json.JSONArray(turnCredsJson)
+                val servers = mutableListOf<PeerConnection.IceServer>()
+                for (i in 0 until jsonArray.length()) {
+                    val serverObj = jsonArray.getJSONObject(i)
+                    val urlsArray = serverObj.optJSONArray("urls")
+                    val username = serverObj.optString("username", "")
+                    val credential = serverObj.optString("credential", "")
+
+                    if (urlsArray != null) {
+                        for (j in 0 until urlsArray.length()) {
+                            val url = urlsArray.getString(j)
+                            val builder = PeerConnection.IceServer.builder(url)
+                            if (username.isNotEmpty()) builder.setUsername(username)
+                            if (credential.isNotEmpty()) builder.setPassword(credential)
+                            servers.add(builder.createIceServer())
+                        }
+                    }
+                }
+                if (servers.isNotEmpty()) {
+                    SignalingClient.getInstance(applicationContext).currentIceServers = servers
+                }
+            } catch (e: Exception) {
+                Log.e("FCM_DEBUG", "Failed to parse TURN credentials", e)
+            }
+        }
+
         SignalingClient.getInstance(applicationContext).notifyCallDelivered(callerId)
 
-        // 1. The default full-screen intent (when the phone is locked)
         val fullScreenIntent = Intent(this, IncomingCallActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra("CALLER_ID", callerId)
@@ -79,18 +108,16 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             this, 0, fullScreenIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 2. The explicit Accept Intent (bypasses the ringing screen and connects)
         val acceptIntent = Intent(this, IncomingCallActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra("CALLER_ID", callerId)
             putExtra("LICENSE_PLATE", licensePlate)
-            putExtra("AUTO_ACCEPT", true) // Tells the activity to skip the ringing screen
+            putExtra("AUTO_ACCEPT", true)
         }
         val acceptPendingIntent = PendingIntent.getActivity(
             this, callerId.hashCode() + 2, acceptIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 3. Intent for swiping away OR clicking decline
         val dismissIntent = Intent(this, CallRejectReceiver::class.java).apply {
             action = "REJECT_CALL_ACTION"
             putExtra("CALLER_ID", callerId)
@@ -123,16 +150,16 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         val notificationBuilder = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.drawable.ic_launcher_foreground) 
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setColor(android.graphics.Color.parseColor("#62C554"))
             .setContentTitle("Incoming Secure Call")
             .setContentText("Vehicle: $licensePlate")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setFullScreenIntent(fullScreenPendingIntent, true)
-            .setDeleteIntent(dismissPendingIntent) // Triggers if swiped away
-            .addAction(0, "Decline", dismissPendingIntent) // Explicit Decline
-            .addAction(0, "Accept", acceptPendingIntent) // Explicit Accept
+            .setDeleteIntent(dismissPendingIntent)
+            .addAction(0, "Decline", dismissPendingIntent)
+            .addAction(0, "Accept", acceptPendingIntent)
             .setAutoCancel(true)
             .setOngoing(true)
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))

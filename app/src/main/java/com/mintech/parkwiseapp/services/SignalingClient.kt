@@ -12,6 +12,7 @@ import com.mintech.parkwiseapp.R
 import com.mintech.parkwiseapp.core.ApiConstants
 import io.socket.client.IO
 import io.socket.client.Socket
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONObject
 import org.webrtc.*
@@ -21,18 +22,22 @@ class SignalingClient(private val context: Context) {
     companion object {
         @Volatile private var instance: SignalingClient? = null
         fun getInstance(context: Context): SignalingClient =
-                instance ?: synchronized(this) {
-                    instance ?: SignalingClient(context).also { instance = it }
-                }
+            instance ?: synchronized(this) {
+                instance ?: SignalingClient(context).also { instance = it }
+            }
     }
 
     val isCallActive = MutableStateFlow(false)
     val rtcState = MutableStateFlow("Connecting...")
-    
+
     val currentVehiclePlate = MutableStateFlow("")
-    
-    // 🚨 NEW: Absolute timestamp to fix background timer resets
+
     var callStartTime: Long = 0L
+
+    // 🚨 NEW: Dynamic ICE Servers
+    var currentIceServers: List<PeerConnection.IceServer> = listOf(
+        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
+    )
 
     private var targetUserId: String? = null
     private var socket: Socket? = null
@@ -58,7 +63,7 @@ class SignalingClient(private val context: Context) {
 
     private fun initWebRTC() {
         PeerConnectionFactory.initialize(
-                PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions()
+            PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions()
         )
         peerConnectionFactory = PeerConnectionFactory.builder().createPeerConnectionFactory()
     }
@@ -72,12 +77,12 @@ class SignalingClient(private val context: Context) {
             val myId = prefs.getString("user_id", "") ?: ""
             if (myId.isNotEmpty()) {
                 socket?.emit("register", myId)
-                
+
                 pendingDeliveryAckCallerId?.let { callerId ->
                     socket?.emit("call-delivered", JSONObject().put("callerId", callerId))
                     pendingDeliveryAckCallerId = null
                 }
-                
+
                 pendingAcceptCallerId?.let { callerId ->
                     mainHandler.postDelayed({
                         val payload = JSONObject().apply {
@@ -85,15 +90,15 @@ class SignalingClient(private val context: Context) {
                             put("responderId", myId)
                         }
                         socket?.emit("accept-call", payload)
-                        pendingAcceptCallerId = null 
-                    }, 400) 
+                        pendingAcceptCallerId = null
+                    }, 400)
                 }
             }
         }
 
         socket?.on("call-ringing") {
             mainHandler.post {
-                offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) } 
+                offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
                 rtcState.value = "Ringing..."
                 startRingbackTone()
             }
@@ -101,7 +106,7 @@ class SignalingClient(private val context: Context) {
 
         socket?.on("call-delivered") {
             mainHandler.post {
-                offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) } 
+                offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
                 rtcState.value = "Ringing..."
                 startRingbackTone()
             }
@@ -112,8 +117,8 @@ class SignalingClient(private val context: Context) {
             val responderId = data.getString("responderId")
             mainHandler.post {
                 offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-                rtcState.value = "Connecting..." 
-                
+                rtcState.value = "Connecting..."
+
                 stopRingbackTone()
                 triggerHapticFeedback()
             }
@@ -131,13 +136,13 @@ class SignalingClient(private val context: Context) {
             val data = args[0] as JSONObject
             val sdp = data.getJSONObject("sdp").getString("sdp")
             peerConnection?.setRemoteDescription(
-                    object : SimpleSdpObserver() {
-                        override fun onSetSuccess() {
-                            hasRemoteDescription = true
-                            drainRemoteCandidates()
-                        }
-                    },
-                    SessionDescription(SessionDescription.Type.ANSWER, sdp)
+                object : SimpleSdpObserver() {
+                    override fun onSetSuccess() {
+                        hasRemoteDescription = true
+                        drainRemoteCandidates()
+                    }
+                },
+                SessionDescription(SessionDescription.Type.ANSWER, sdp)
             )
         }
 
@@ -145,7 +150,7 @@ class SignalingClient(private val context: Context) {
             val data = args[0] as JSONObject
             val cand = data.getJSONObject("candidate")
             val iceCandidate = IceCandidate(cand.getString("sdpMid"), cand.getInt("sdpMLineIndex"), cand.getString("candidate"))
-            
+
             if (hasRemoteDescription) {
                 peerConnection?.addIceCandidate(iceCandidate)
             } else {
@@ -155,13 +160,13 @@ class SignalingClient(private val context: Context) {
 
         socket?.on("call-ended") { cleanup() }
     }
-    
+
     fun preconnectSocket() {
         if (socket?.connected() != true) {
             socket?.connect()
         }
     }
-    
+
     private fun startRingbackTone() {
         try {
             if (ringbackPlayer == null) {
@@ -187,7 +192,7 @@ class SignalingClient(private val context: Context) {
             AppLogger.recordError(e, "Error stopping ringback tone")
         }
     }
-    
+
     private fun triggerHapticFeedback() {
         try {
             val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
@@ -200,10 +205,10 @@ class SignalingClient(private val context: Context) {
                 }
             }
         } catch (e: Exception) {
-            AppLogger.recordError(e, "Haptic feedback failed (Missing Permission?)")
+            AppLogger.recordError(e, "Haptic feedback failed")
         }
     }
-    
+
     fun notifyCallDelivered(callerId: String) {
         if (socket?.connected() == true) {
             socket?.emit("call-delivered", JSONObject().put("callerId", callerId))
@@ -218,7 +223,6 @@ class SignalingClient(private val context: Context) {
         this.targetUserId = targetId
         isCallActive.value = true
         rtcState.value = "Calling..."
-        socket?.connect()
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         audioManager.isSpeakerphoneOn = false
 
@@ -233,6 +237,37 @@ class SignalingClient(private val context: Context) {
             }
         }
         mainHandler.postDelayed(offlineTimeoutRunnable!!, 15000)
+
+        // 🚨 NEW: Caller fetches credentials before connecting the socket
+        val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+        val jwtToken = prefs.getString("jwt_token", "") ?: ""
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val response = ApiService.api.fetchTurnCredentials("Bearer $jwtToken")
+                if (response.isSuccessful) {
+                    response.body()?.iceServers?.let { servers ->
+                        val peerServers = servers.flatMap { config ->
+                            config.urls.map { url ->
+                                val builder = PeerConnection.IceServer.builder(url)
+                                config.username?.let { builder.setUsername(it) }
+                                config.credential?.let { builder.setPassword(it) }
+                                builder.createIceServer()
+                            }
+                        }
+                        if (peerServers.isNotEmpty()) {
+                            currentIceServers = peerServers
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.recordError(e, "Failed to fetch TURN credentials")
+            }
+
+            withContext(Dispatchers.Main) {
+                socket?.connect()
+            }
+        }
     }
 
     fun acceptCallBackground(callerId: String) {
@@ -259,14 +294,10 @@ class SignalingClient(private val context: Context) {
     }
 
     private fun setupPeerConnection(targetId: String) {
-        if (peerConnection != null) return 
+        if (peerConnection != null) return
 
-        val iceServers = listOf(
-            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("turn:187.127.152.59:3478").setUsername("myuser").setPassword("mypassword").createIceServer()
-        )
-        
-        val rtcConfig = PeerConnection.RTCConfiguration(iceServers)
+        // 🚨 NEW: Inject dynamically mapped servers
+        val rtcConfig = PeerConnection.RTCConfiguration(currentIceServers)
 
         peerConnection = peerConnectionFactory?.createPeerConnection(
             rtcConfig,
@@ -279,14 +310,13 @@ class SignalingClient(private val context: Context) {
                     }
                     socket?.emit("ice-candidate", JSONObject().put("targetUserId", targetId).put("candidate", candJson))
                 }
-                
+
                 override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState?) {
                     mainHandler.post {
                         if (newState == PeerConnection.IceConnectionState.CONNECTED || newState == PeerConnection.IceConnectionState.COMPLETED) {
                             AppLogger.logEvent("webrtc_ice_connected")
                             offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-                            
-                            // 🚨 FIX: Set absolute timestamp so the timer doesn't reset on backgrounding
+
                             if (callStartTime == 0L) {
                                 callStartTime = System.currentTimeMillis()
                             }
@@ -297,7 +327,7 @@ class SignalingClient(private val context: Context) {
                         }
                     }
                 }
-                
+
                 override fun onSignalingChange(p0: PeerConnection.SignalingState?) {}
                 override fun onIceConnectionReceivingChange(p0: Boolean) {}
                 override fun onIceGatheringChange(p0: PeerConnection.IceGatheringState?) {}
@@ -338,33 +368,63 @@ class SignalingClient(private val context: Context) {
     }
 
     private fun handleOffer(callerId: String, sdpString: String) {
-        this.targetUserId = callerId
-        setupPeerConnection(callerId)
-
-        peerConnection?.setRemoteDescription(
-            object : SimpleSdpObserver() {
-                override fun onSetSuccess() {
-                    hasRemoteDescription = true
-                    drainRemoteCandidates()
-
-                    peerConnection?.createAnswer(
-                        object : SimpleSdpObserver() {
-                            override fun onCreateSuccess(sdp: SessionDescription?) {
-                                if (sdp == null) return
-                                peerConnection?.setLocalDescription(SimpleSdpObserver(), sdp)
-                                val ansJson = JSONObject().apply {
-                                    put("type", "answer")
-                                    put("sdp", sdp.description)
+        // 🚨 NEW: Fallback mechanism in case the push token failed to include credentials
+        CoroutineScope(Dispatchers.IO).launch {
+            if (currentIceServers.size <= 1) {
+                val prefs = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+                val jwtToken = prefs.getString("jwt_token", "") ?: ""
+                try {
+                    val response = ApiService.api.fetchTurnCredentials("Bearer $jwtToken")
+                    if (response.isSuccessful) {
+                        response.body()?.iceServers?.let { servers ->
+                            val peerServers = servers.flatMap { config ->
+                                config.urls.map { url ->
+                                    val builder = PeerConnection.IceServer.builder(url)
+                                    config.username?.let { builder.setUsername(it) }
+                                    config.credential?.let { builder.setPassword(it) }
+                                    builder.createIceServer()
                                 }
-                                socket?.emit("answer", JSONObject().put("targetUserId", callerId).put("sdp", ansJson))
                             }
-                        },
-                        MediaConstraints()
-                    )
+                            if (peerServers.isNotEmpty()) {
+                                currentIceServers = peerServers
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    AppLogger.recordError(e, "Fallback TURN fetch failed")
                 }
-            },
-            SessionDescription(SessionDescription.Type.OFFER, sdpString)
-        )
+            }
+
+            withContext(Dispatchers.Main) {
+                targetUserId = callerId
+                setupPeerConnection(callerId)
+
+                peerConnection?.setRemoteDescription(
+                    object : SimpleSdpObserver() {
+                        override fun onSetSuccess() {
+                            hasRemoteDescription = true
+                            drainRemoteCandidates()
+
+                            peerConnection?.createAnswer(
+                                object : SimpleSdpObserver() {
+                                    override fun onCreateSuccess(sdp: SessionDescription?) {
+                                        if (sdp == null) return
+                                        peerConnection?.setLocalDescription(SimpleSdpObserver(), sdp)
+                                        val ansJson = JSONObject().apply {
+                                            put("type", "answer")
+                                            put("sdp", sdp.description)
+                                        }
+                                        socket?.emit("answer", JSONObject().put("targetUserId", callerId).put("sdp", ansJson))
+                                    }
+                                },
+                                MediaConstraints()
+                            )
+                        }
+                    },
+                    SessionDescription(SessionDescription.Type.OFFER, sdpString)
+                )
+            }
+        }
     }
 
     private fun drainRemoteCandidates() {
@@ -385,17 +445,17 @@ class SignalingClient(private val context: Context) {
     fun endCall(callerId: String? = null, onCallEnded: (() -> Unit)? = null) {
         AppLogger.logEvent("webrtc_end_call_emitted")
         offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-        stopRingbackTone() 
-        
+        stopRingbackTone()
+
         if (this.targetUserId == null && callerId != null) {
             this.targetUserId = callerId
         }
-        
+
         val target = targetUserId ?: callerId
-        
+
         if (target != null) {
             val payload = JSONObject().apply { put("targetUserId", target) }
-            
+
             if (socket?.connected() == true) {
                 socket?.emit("end-call", payload)
                 mainHandler.postDelayed({
@@ -414,10 +474,10 @@ class SignalingClient(private val context: Context) {
                                 cleanup()
                                 onCallEnded?.invoke()
                             }, 500)
-                        }, 500) 
+                        }, 500)
                     }
                 }
-                
+
                 mainHandler.postDelayed({
                     if (!handled) {
                         handled = true
@@ -434,19 +494,24 @@ class SignalingClient(private val context: Context) {
 
     fun cleanup() {
         offlineTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
-        stopRingbackTone() 
-        
+        stopRingbackTone()
+
         peerConnection?.close()
         peerConnection = null
         socket?.disconnect()
         audioManager.mode = AudioManager.MODE_NORMAL
-        
+
         isCallActive.value = false
         targetUserId = null
         currentVehiclePlate.value = ""
-        callStartTime = 0L // 🚨 NEW: Reset the timestamp when the call actually ends
+        callStartTime = 0L
         hasRemoteDescription = false
         remoteCandidatesQueue.clear()
+
+        // 🚨 NEW: Reset back to standard STUN when call completes
+        currentIceServers = listOf(
+            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
+        )
     }
 
     open class SimpleSdpObserver : SdpObserver {
